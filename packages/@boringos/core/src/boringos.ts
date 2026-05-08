@@ -24,12 +24,7 @@ import type { QueueAdapter } from "@boringos/pipeline";
 import { createInProcessQueue } from "@boringos/pipeline";
 // v1 @boringos/workflow engine deleted — workflows execute through
 // the v2 `workflow.run` tool dispatcher. See run-workflow.ts.
-import {
-  createConnectorRegistry,
-  createEventBus,
-  createActionRunner,
-} from "@boringos/connector";
-import type { ConnectorDefinition as ConnectorDef } from "@boringos/connector";
+import { createEventBus } from "./event-bus.js";
 import type {
   BoringOSConfig,
   AppContext,
@@ -94,7 +89,7 @@ export class BoringOS {
   private personas: Map<string, PersonaBundle> = new Map();
   private plugins: PluginManifest[] = [];
   private pluginDefs: PluginDefinition[] = [];
-  private connectorDefs: ConnectorDef[] = [];
+  // v1 ConnectorDefinition[] removed — connectors are v2 modules now.
   private beforeStartHooks: LifecycleHook[] = [];
   private afterStartHooks: LifecycleHook[] = [];
   private beforeShutdownHooks: LifecycleHook[] = [];
@@ -105,7 +100,7 @@ export class BoringOS {
   private userSchemaStatements: string[] = [];
   private inboxRoutes: Array<{ filter: (event: Record<string, unknown>) => boolean; transform: (event: Record<string, unknown>) => { source: string; subject: string; body?: string; from?: string; assigneeUserId?: string } }> = [];
   private tenantProvisionedHook: ((db: Db, tenantId: string) => Promise<void>) | undefined;
-  private eventHandlers: Array<{ type: string | null; handler: (event: import("@boringos/connector").ConnectorEvent) => void | Promise<void> }> = [];
+  private eventHandlers: Array<{ type: string | null; handler: (event: import("./event-bus.js").ConnectorEvent) => void | Promise<void> }> = [];
   // v2 — Skills + Tools + Modules. Empty in v1-only deployments.
   // Populated via `app.module(myModule)`. The boot sequence skips
   // mounting the v2 routes when this is empty, so v1 deployments
@@ -144,11 +139,6 @@ export class BoringOS {
     return this;
   }
 
-  connector(definition: ConnectorDef): this {
-    this.connectorDefs.push(definition);
-    return this;
-  }
-
   plugin(manifest: PluginManifest | PluginDefinition): this {
     if ("jobs" in manifest || "webhooks" in manifest) {
       this.pluginDefs.push(manifest as PluginDefinition);
@@ -174,7 +164,7 @@ export class BoringOS {
     return this;
   }
 
-  onEvent(type: string | null, handler: (event: import("@boringos/connector").ConnectorEvent) => void | Promise<void>): this {
+  onEvent(type: string | null, handler: (event: import("./event-bus.js").ConnectorEvent) => void | Promise<void>): this {
     this.eventHandlers.push({ type, handler });
     return this;
   }
@@ -347,9 +337,6 @@ export class BoringOS {
     // Connector registry: kept for OAuth + webhook dispatch
     // (v2 modules wrap connector clients). The agent prompt
     // surfaces tools through the v2 tool-catalog provider, not
-    // through this registry.
-    const connectorRegistry = createConnectorRegistry();
-
     const agentEngine = createAgentEngine({
       db: dbConn.db,
       runtimes,
@@ -359,7 +346,6 @@ export class BoringOS {
       callbackUrl,
       jwtSecret,
       queue: resolvedQueue,
-      connectorRegistry,
     });
 
     // Now that the agent engine exists, populate the deps holder
@@ -406,12 +392,8 @@ export class BoringOS {
     // 10. Setup connectors. The registry was created earlier so it
     // could be passed into the agent engine; here we populate it.
     const eventBus = createEventBus();
-    for (const def of this.connectorDefs) {
-      connectorRegistry.register(def);
-    }
-    const actionRunner = createActionRunner(connectorRegistry);
-    // (v1 workflow service map removed — actionRunner is still
-    // available through connector-routes.ts for OAuth + webhooks.)
+    // (v1 ConnectorRegistry + ActionRunner removed —
+    // OAuth lives in core/oauth.ts, action invocation in /api/tools/*.)
 
     // Populate eventBus on context (was null placeholder before eventBus creation)
     context.eventBus = eventBus;
@@ -720,7 +702,7 @@ export class BoringOS {
     // The OAuth + webhook pieces of /api/connectors stay mounted so
     // OAuth flows and 3rd-party webhooks keep working — the gating
     // is specifically the actions invocation paths.
-    const connectorApp = createConnectorRoutes(dbConn.db, connectorRegistry, eventBus, actionRunner, jwtSecret, callbackUrl, {
+    const connectorApp = createConnectorRoutes(dbConn.db, eventBus, jwtSecret, callbackUrl, {
       shellOrigin: this.config.shellOrigin,
     });
     app.route("/api/connectors", connectorApp);
@@ -732,7 +714,7 @@ export class BoringOS {
     // Now that the bus exists, connect the workflow engine's event sink.
     realtimeBusRef = realtimeBus;
 
-    const adminApp = createAdminRoutes(dbConn.db, agentEngine, adminKeyValue, realtimeBus, v2ToolRegistry, runtimes, actionRunner);
+    const adminApp = createAdminRoutes(dbConn.db, agentEngine, adminKeyValue, realtimeBus, v2ToolRegistry, runtimes);
     app.route("/api/admin", adminApp);
 
     // K10/K11 — apps install/uninstall HTTP endpoints. Mounted with an
@@ -1014,14 +996,14 @@ export class BoringOS {
     // Inbox snooze ticker: flips snoozed rows back to unread when their
     // snooze_until elapses. Cheap (one indexed UPDATE every 30s) so
     // wired unconditionally.
-    const snoozeTicker = createInboxSnoozeTicker(dbConn.db, { actionRunner });
+    const snoozeTicker = createInboxSnoozeTicker(dbConn.db);
     snoozeTicker.start();
 
     // Reverse sync — pull state changes from Gmail back into Hebbs
     // every 2 minutes. Skipped silently if no Gmail connector is wired
     // (the ticker iterates connected Gmail tenants; an empty set is a
     // no-op).
-    const reverseSyncTicker = createInboxGmailReverseSyncTicker(dbConn.db, actionRunner);
+    const reverseSyncTicker = createInboxGmailReverseSyncTicker(dbConn.db);
     reverseSyncTicker.start();
 
     // 13. Run afterStart hooks

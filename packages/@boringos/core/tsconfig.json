@@ -15,7 +15,6 @@
     { "path": "../agent" },
     { "path": "../module-sdk" },
     { "path": "../pipeline" },
-    { "path": "../connector" },
     { "path": "../connector-google" },
     { "path": "../connector-slack" }
   ]

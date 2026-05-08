@@ -24,7 +24,20 @@
 
 import { sql } from "drizzle-orm";
 import type { Db } from "@boringos/db";
-import type { ActionRunner, ConnectorCredentials } from "@boringos/connector";
+import { GmailClient } from "@boringos/connector-google";
+
+// v1's `ActionRunner.execute()` is replaced with a tiny local
+// helper that constructs a fresh GmailClient per call. Same HTTP
+// path, no v1 framework.
+interface SimpleResult { success: boolean; data?: unknown; error?: string; }
+async function runGmail(
+  row: { credentials: Record<string, unknown> | null },
+  action: string,
+  inputs: Record<string, unknown>,
+): Promise<SimpleResult> {
+  const access = (row.credentials?.accessToken as string | undefined) ?? "";
+  return new GmailClient(access).executeAction(action, inputs);
+}
 
 const KIND_GMAIL = "google";
 
@@ -44,14 +57,7 @@ interface ConnectorRow {
   config: Record<string, unknown> | null;
 }
 
-function credentialsFor(row: ConnectorRow): ConnectorCredentials {
-  const c = row.credentials ?? {};
-  return {
-    accessToken: (c as { accessToken?: string }).accessToken ?? "",
-    refreshToken: (c as { refreshToken?: string }).refreshToken,
-    config: row.config ?? undefined,
-  };
-}
+// (credentialsFor removed — runGmail() reads accessToken directly)
 
 function readHistoryId(row: ConnectorRow): string | null {
   const cfg = row.config ?? {};
@@ -130,7 +136,6 @@ async function applyEvent(
  */
 async function seedHistoryId(
   db: Db,
-  actionRunner: ActionRunner,
   row: ConnectorRow,
 ): Promise<string | null> {
   const result = await db.execute(sql`
@@ -144,16 +149,7 @@ async function seedHistoryId(
   `);
   const gmailId = (result as unknown as Array<{ gmail_id: string }>)[0]?.gmail_id;
   if (!gmailId) return null;
-
-  const r = await actionRunner.execute(
-    {
-      connectorKind: KIND_GMAIL,
-      action: "read_email",
-      tenantId: row.tenant_id,
-      inputs: { messageId: gmailId },
-    },
-    credentialsFor(row),
-  );
+  const r = await runGmail(row, "read_email", { messageId: gmailId });
   if (!r.success) return null;
   const historyId = (r.data as { historyId?: string } | undefined)?.historyId;
   return typeof historyId === "string" ? historyId : null;
@@ -161,7 +157,6 @@ async function seedHistoryId(
 
 export function createInboxGmailReverseSyncTicker(
   db: Db,
-  actionRunner: ActionRunner,
   options: { intervalMs?: number } = {},
 ): InboxGmailReverseSyncTicker {
   const intervalMs = options.intervalMs ?? DEFAULT_INTERVAL_MS;
@@ -185,7 +180,7 @@ export function createInboxGmailReverseSyncTicker(
         let historyId = readHistoryId(row);
 
         if (!historyId) {
-          const seeded = await seedHistoryId(db, actionRunner, row);
+          const seeded = await seedHistoryId(db, row);
           if (seeded) {
             await persistHistoryId(db, row, seeded);
           }
@@ -194,20 +189,12 @@ export function createInboxGmailReverseSyncTicker(
           continue;
         }
 
-        const result = await actionRunner.execute(
-          {
-            connectorKind: KIND_GMAIL,
-            action: "list_history",
-            tenantId: row.tenant_id,
-            inputs: { startHistoryId: historyId },
-          },
-          credentialsFor(row),
-        );
+        const result = await runGmail(row, "list_history", { startHistoryId: historyId });
 
         if (!result.success) {
           // 404-equivalent (cursor too old): re-seed from current state.
           if (result.error && /404/.test(result.error)) {
-            const seeded = await seedHistoryId(db, actionRunner, row);
+            const seeded = await seedHistoryId(db, row);
             if (seeded) await persistHistoryId(db, row, seeded);
           } else {
             console.warn(

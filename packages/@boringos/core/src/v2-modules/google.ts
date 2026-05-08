@@ -12,7 +12,7 @@ import { eq, and } from "drizzle-orm";
 import type { Db } from "@boringos/db";
 import { connectors } from "@boringos/db";
 import { GmailClient, CalendarClient } from "@boringos/connector-google";
-import { refreshOAuthToken } from "@boringos/connector";
+import { refreshOAuthToken } from "../oauth.js";
 import { z } from "@boringos/module-sdk";
 import type {
   Module,

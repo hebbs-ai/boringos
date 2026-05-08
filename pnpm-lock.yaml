@@ -87,9 +87,6 @@ importers:
 
   packages/@boringos/agent:
     dependencies:
-      '@boringos/connector':
-        specifier: workspace:*
-        version: link:../connector
       '@boringos/db':
         specifier: workspace:*
         version: link:../db
@@ -135,27 +132,8 @@ importers:
         specifier: ^5.7.3
         version: 5.9.3
 
-  packages/@boringos/connector:
-    dependencies:
-      '@boringos/db':
-        specifier: workspace:*
-        version: link:../db
-      '@boringos/shared':
-        specifier: workspace:*
-        version: link:../shared
-    devDependencies:
-      '@types/node':
-        specifier: ^22.0.0
-        version: 22.19.17
-      typescript:
-        specifier: ^5.7.3
-        version: 5.9.3
-
   packages/@boringos/connector-google:
     dependencies:
-      '@boringos/connector':
-        specifier: workspace:*
-        version: link:../connector
       '@boringos/shared':
         specifier: workspace:*
         version: link:../shared
@@ -182,9 +160,6 @@ importers:
 
   packages/@boringos/connector-slack:
     dependencies:
-      '@boringos/connector':
-        specifier: workspace:*
-        version: link:../connector
       '@boringos/shared':
         specifier: workspace:*
         version: link:../shared
@@ -226,9 +201,6 @@ importers:
       '@boringos/app-sdk':
         specifier: workspace:*
         version: link:../app-sdk
-      '@boringos/connector':
-        specifier: workspace:*
-        version: link:../connector
       '@boringos/connector-google':
         specifier: workspace:*
         version: link:../connector-google

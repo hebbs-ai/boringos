@@ -9,7 +9,6 @@
     { "path": "./packages/@boringos/db" },
     { "path": "./packages/@boringos/agent" },
     { "path": "./packages/@boringos/pipeline" },
-    { "path": "./packages/@boringos/connector" },
     { "path": "./packages/@boringos/core" }
   ]
 }

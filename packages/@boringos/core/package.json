@@ -18,7 +18,6 @@
   "dependencies": {
     "@boringos/agent": "workspace:*",
     "@boringos/app-sdk": "workspace:*",
-    "@boringos/connector": "workspace:*",
     "@boringos/connector-google": "workspace:*",
     "@boringos/connector-slack": "workspace:*",
     "@boringos/control-plane": "workspace:*",

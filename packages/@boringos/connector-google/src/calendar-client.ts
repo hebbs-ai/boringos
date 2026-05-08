@@ -1,4 +1,4 @@
-import type { ActionResult } from "@boringos/connector";
+import type { ActionResult } from "./gmail-client.js";
 
 const CALENDAR_API = "https://www.googleapis.com/calendar/v3";
 

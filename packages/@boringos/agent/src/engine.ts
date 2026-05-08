@@ -5,7 +5,7 @@ import type { MemoryProvider } from "@boringos/memory";
 import type { RuntimeRegistry, AgentRunCallbacks, CostEvent } from "@boringos/runtime";
 import type { StorageBackend } from "@boringos/drive";
 import type { QueueAdapter } from "@boringos/pipeline";
-import type { ConnectorRegistry } from "@boringos/connector";
+// v1 connector registry removed — v2 modules are the only catalog now.
 import { createInProcessQueue } from "@boringos/pipeline";
 import { createHook, generateId } from "@boringos/shared";
 import type { Hook } from "@boringos/shared";
@@ -45,14 +45,6 @@ export interface AgentEngineConfig {
   callbackUrl: string;
   jwtSecret: string;
   queue?: QueueAdapter<AgentRunJob>;
-  /**
-   * Connector registry. Kept on the config for backward compat
-   * with hosts that still pass it; the engine no longer reads it
-   * for the prompt (v2 connector modules surface their tools via
-   * the tool registry). Internal callers may still use it for
-   * OAuth + webhook dispatch.
-   */
-  connectorRegistry?: ConnectorRegistry;
 }
 
 function registerDefaultProviders(pipeline: ContextPipeline, config: AgentEngineConfig): void {

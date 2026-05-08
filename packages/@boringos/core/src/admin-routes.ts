@@ -36,7 +36,6 @@ import {
 } from "@boringos/db";
 import type { AgentEngine, ToolRegistry } from "@boringos/agent";
 import type { RuntimeRegistry } from "@boringos/runtime";
-import type { ActionRunner } from "@boringos/connector";
 import { generateId } from "@boringos/shared";
 import type { RealtimeBus } from "./realtime.js";
 import { syncArchive, syncStatusChange } from "./inbox-gmail-sync.js";
@@ -57,7 +56,6 @@ export function createAdminRoutes(
   realtimeBus?: RealtimeBus,
   toolRegistry?: ToolRegistry,
   runtimeRegistry?: RuntimeRegistry,
-  actionRunner?: ActionRunner,
 ): Hono<AdminEnv> {
 
   function emit(type: string, tenantId: string, data: Record<string, unknown>) {
@@ -1832,14 +1830,7 @@ export function createAdminRoutes(
     if (rows[0].status === "unread") {
       await db.update(inboxItems).set({ status: "read", updatedAt: new Date() }).where(eq(inboxItems.id, rows[0].id));
       // Mirror to Gmail: remove UNREAD label.
-      if (actionRunner) {
-        void syncStatusChange(
-          { db, actionRunner },
-          c.get("tenantId"),
-          rows[0].id,
-          "read",
-        );
-      }
+      void syncStatusChange({ db }, c.get("tenantId"), rows[0].id, "read");
     }
 
     return c.json(rows[0]);
@@ -1870,13 +1861,8 @@ export function createAdminRoutes(
     // Mirror status changes to Gmail. Fire-and-forget — local state is
     // source of truth; Gmail can lag without rolling back the user's
     // action.
-    if (actionRunner && body.status !== undefined && typeof body.status === "string") {
-      void syncStatusChange(
-        { db, actionRunner },
-        tenantId,
-        itemId,
-        body.status,
-      );
+    if (body.status !== undefined && typeof body.status === "string") {
+      void syncStatusChange({ db }, tenantId, itemId, body.status);
     }
     const rows = await db.select().from(inboxItems).where(eq(inboxItems.id, itemId)).limit(1);
     if (!rows[0]) return c.json({ error: "Inbox item not found" }, 404);
@@ -1891,9 +1877,7 @@ export function createAdminRoutes(
       archivedAt: new Date(),
       updatedAt: new Date(),
     }).where(and(eq(inboxItems.id, itemId), eq(inboxItems.tenantId, tenantId)));
-    if (actionRunner) {
-      void syncArchive({ db, actionRunner }, tenantId, itemId);
-    }
+    void syncArchive({ db }, tenantId, itemId);
     return c.json({ ok: true });
   });
 

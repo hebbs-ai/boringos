@@ -1,4 +1,9 @@
-import type { ActionResult } from "@boringos/connector";
+// Local type — the v1 connector framework was deleted.
+export interface ActionResult {
+  success: boolean;
+  data?: Record<string, unknown>;
+  error?: string;
+}
 
 const GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me";
 

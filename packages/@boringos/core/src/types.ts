@@ -5,7 +5,7 @@ import type { DatabaseConfig } from "@boringos/db";
 import type { AgentEngine, ContextProvider } from "@boringos/agent";
 // @boringos/workflow engine deleted — use the v2 dispatcher.
 import type { SkillProvider } from "@boringos/shared";
-import type { EventBus } from "@boringos/connector";
+import type { EventBus } from "./event-bus.js";
 
 // ── BoringOS — the application host ────────────────────────────────────────
 

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: BUSL-1.1
+// SPDX-License-Identifier: MIT
 //
 // Hebbs → Gmail mirror for inbox state changes.
 //
@@ -11,22 +11,21 @@
 // Lazy-creates a `Hebbs/Snoozed` label on first snooze and caches the
 // label id on the connector row's `config.labels.snoozed` so we don't
 // hit `users.labels.list` on every call.
+//
+// v1 used `ActionRunner.execute(...)` to dispatch the Gmail label
+// calls. With the connector framework deleted, we instantiate
+// `GmailClient` directly here. Same HTTP path, fewer indirections.
 
 import { eq, and } from "drizzle-orm";
 import type { Db } from "@boringos/db";
 import { connectors, inboxItems } from "@boringos/db";
-import type { ActionRunner, ConnectorCredentials } from "@boringos/connector";
+import { GmailClient } from "@boringos/connector-google";
+import { refreshOAuthToken } from "./oauth.js";
 
 const SNOOZED_LABEL_NAME = "Hebbs/Snoozed";
 const SOURCE_GMAIL = "google.gmail";
 const KIND_GMAIL = "google";
 
-/**
- * Pull the underlying Gmail message id off an inbox item. Stored in
- * the dedicated `source_id` column by `create-inbox-item` (line 91 in
- * the handler) — immune to later metadata edits by triage / replier
- * agents that overwrite `metadata`.
- */
 function gmailMessageId(item: { sourceId: string | null; source: string }): string | null {
   if (item.source !== SOURCE_GMAIL) return null;
   return item.sourceId && item.sourceId.length > 0 ? item.sourceId : null;
@@ -38,10 +37,7 @@ interface ConnectorRow {
   config: Record<string, unknown> | null;
 }
 
-async function loadConnector(
-  db: Db,
-  tenantId: string,
-): Promise<ConnectorRow | null> {
+async function loadConnector(db: Db, tenantId: string): Promise<ConnectorRow | null> {
   const rows = await db
     .select()
     .from(connectors)
@@ -56,44 +52,48 @@ async function loadConnector(
   };
 }
 
-function credentialsFor(row: ConnectorRow): ConnectorCredentials {
-  const c = row.credentials ?? {};
-  return {
-    accessToken: (c as { accessToken?: string }).accessToken ?? "",
-    refreshToken: (c as { refreshToken?: string }).refreshToken,
-    config: row.config ?? undefined,
-  };
+/**
+ * Run a Gmail action with OAuth refresh-and-retry. Mirror of the
+ * pattern in `v2-modules/google.ts`.
+ */
+async function runWithRefresh(
+  db: Db,
+  row: ConnectorRow,
+  action: string,
+  inputs: Record<string, unknown>,
+): Promise<{ success: boolean; data?: unknown; error?: string }> {
+  const access = (row.credentials?.accessToken as string | undefined) ?? "";
+  const refresh = row.credentials?.refreshToken as string | undefined;
+  let result = await new GmailClient(access).executeAction(action, inputs);
+  const looks401 =
+    !result.success && typeof result.error === "string" && /\b401\b/.test(result.error);
+  if (looks401 && refresh) {
+    const refreshed = await refreshOAuthToken("google", refresh);
+    if (refreshed) {
+      await db
+        .update(connectors)
+        .set({
+          credentials: { ...(row.credentials ?? {}), accessToken: refreshed.accessToken, expiresAt: refreshed.expiresAt },
+          updatedAt: new Date(),
+        })
+        .where(eq(connectors.id, row.id))
+        .catch(() => {});
+      result = await new GmailClient(refreshed.accessToken).executeAction(action, inputs);
+    }
+  }
+  return result;
 }
 
-/**
- * Resolve the cached label id, creating the label on Gmail's side
- * (and caching it back to the connector row) if this is the first
- * use for the tenant.
- */
 async function resolveSnoozedLabelId(
   db: Db,
-  actionRunner: ActionRunner,
-  tenantId: string,
   row: ConnectorRow,
 ): Promise<string | null> {
-  const cached =
-    (row.config?.labels as { snoozed?: string } | undefined)?.snoozed;
+  const cached = (row.config?.labels as { snoozed?: string } | undefined)?.snoozed;
   if (cached) return cached;
-
-  const result = await actionRunner.execute(
-    {
-      connectorKind: KIND_GMAIL,
-      action: "ensure_label",
-      tenantId,
-      inputs: { name: SNOOZED_LABEL_NAME },
-    },
-    credentialsFor(row),
-  );
+  const result = await runWithRefresh(db, row, "ensure_label", { name: SNOOZED_LABEL_NAME });
   if (!result.success) return null;
   const labelId = (result.data as { id?: string } | undefined)?.id ?? null;
   if (!labelId) return null;
-
-  // Persist back so future calls skip the label lookup.
   const nextConfig = {
     ...(row.config ?? {}),
     labels: { ...((row.config?.labels as Record<string, unknown> | undefined) ?? {}), snoozed: labelId },
@@ -107,27 +107,19 @@ async function resolveSnoozedLabelId(
 }
 
 async function modify(
-  actionRunner: ActionRunner,
-  tenantId: string,
+  db: Db,
   row: ConnectorRow,
   messageId: string,
   addLabelIds: string[],
   removeLabelIds: string[],
 ): Promise<void> {
-  const result = await actionRunner.execute(
-    {
-      connectorKind: KIND_GMAIL,
-      action: "modify_email",
-      tenantId,
-      inputs: { messageId, addLabelIds, removeLabelIds },
-    },
-    credentialsFor(row),
-  );
+  const result = await runWithRefresh(db, row, "modify_email", {
+    messageId,
+    addLabelIds,
+    removeLabelIds,
+  });
   if (!result.success) {
-    console.warn(
-      `[inbox-gmail-sync] modify_email failed for tenant=${tenantId} message=${messageId}:`,
-      result.error,
-    );
+    console.warn(`[inbox-gmail-sync] modify_email failed for message=${messageId}:`, result.error);
   }
 }
 
@@ -146,15 +138,10 @@ async function loadItem(
 
 export interface GmailSyncDeps {
   db: Db;
-  actionRunner: ActionRunner;
 }
 
 /** Hebbs archive → remove `INBOX` label on the Gmail message. */
-export async function syncArchive(
-  deps: GmailSyncDeps,
-  tenantId: string,
-  itemId: string,
-): Promise<void> {
+export async function syncArchive(deps: GmailSyncDeps, tenantId: string, itemId: string): Promise<void> {
   try {
     const item = await loadItem(deps.db, tenantId, itemId);
     if (!item) return;
@@ -162,7 +149,7 @@ export async function syncArchive(
     if (!msgId) return;
     const row = await loadConnector(deps.db, tenantId);
     if (!row) return;
-    await modify(deps.actionRunner, tenantId, row, msgId, [], ["INBOX"]);
+    await modify(deps.db, row, msgId, [], ["INBOX"]);
   } catch (err) {
     console.warn(`[inbox-gmail-sync] syncArchive error:`, err);
   }
@@ -184,15 +171,15 @@ export async function syncStatusChange(
     if (!row) return;
 
     if (status === "read") {
-      await modify(deps.actionRunner, tenantId, row, msgId, [], ["UNREAD"]);
+      await modify(deps.db, row, msgId, [], ["UNREAD"]);
     } else if (status === "unread") {
-      await modify(deps.actionRunner, tenantId, row, msgId, ["UNREAD"], []);
+      await modify(deps.db, row, msgId, ["UNREAD"], []);
     } else if (status === "snoozed") {
-      const labelId = await resolveSnoozedLabelId(deps.db, deps.actionRunner, tenantId, row);
+      const labelId = await resolveSnoozedLabelId(deps.db, row);
       const add = labelId ? [labelId] : [];
-      await modify(deps.actionRunner, tenantId, row, msgId, add, ["INBOX"]);
+      await modify(deps.db, row, msgId, add, ["INBOX"]);
     } else if (status === "archived") {
-      await modify(deps.actionRunner, tenantId, row, msgId, [], ["INBOX"]);
+      await modify(deps.db, row, msgId, [], ["INBOX"]);
     }
   } catch (err) {
     console.warn(`[inbox-gmail-sync] syncStatusChange error:`, err);
@@ -200,11 +187,7 @@ export async function syncStatusChange(
 }
 
 /** Snooze ticker wake → re-add `INBOX` and remove `Hebbs/Snoozed`. */
-export async function syncSnoozeWake(
-  deps: GmailSyncDeps,
-  tenantId: string,
-  itemId: string,
-): Promise<void> {
+export async function syncSnoozeWake(deps: GmailSyncDeps, tenantId: string, itemId: string): Promise<void> {
   try {
     const item = await loadItem(deps.db, tenantId, itemId);
     if (!item) return;
@@ -212,9 +195,9 @@ export async function syncSnoozeWake(
     if (!msgId) return;
     const row = await loadConnector(deps.db, tenantId);
     if (!row) return;
-    const labelId = await resolveSnoozedLabelId(deps.db, deps.actionRunner, tenantId, row);
+    const labelId = await resolveSnoozedLabelId(deps.db, row);
     const remove = labelId ? [labelId] : [];
-    await modify(deps.actionRunner, tenantId, row, msgId, ["INBOX"], remove);
+    await modify(deps.db, row, msgId, ["INBOX"], remove);
   } catch (err) {
     console.warn(`[inbox-gmail-sync] syncSnoozeWake error:`, err);
   }

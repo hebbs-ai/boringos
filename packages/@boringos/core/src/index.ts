@@ -38,11 +38,9 @@ export type { AgentEngine, ContextProvider } from "@boringos/agent";
 // through the v2 `workflow.run` tool dispatcher now.
 
 export { createAuthMiddleware } from "./auth-middleware.js";
-export {
-  installDefaultWorkflows,
-  pauseDefaultWorkflows,
-} from "./connectors/post-connect.js";
-export type { EventBus, ConnectorEvent } from "@boringos/connector";
+// installDefaultWorkflows + pauseDefaultWorkflows removed —
+// drove the v1 BlockHandler engine which no longer exists.
+export type { EventBus, ConnectorEvent } from "./event-bus.js";
 export { createRealtimeBus } from "./realtime.js";
 export type { RealtimeBus, RealtimeEvent, EventType } from "./realtime.js";
 

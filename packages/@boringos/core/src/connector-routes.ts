@@ -1,171 +1,196 @@
-import { Hono } from "hono";
+// SPDX-License-Identifier: MIT
+//
+// Connection routes — OAuth dance + tenant-connection listing.
+//
+// v1 mounted: OAuth flow, webhook receivers, action invocation,
+// connector definition listing. The v1 framework is gone; this
+// file now mounts ONLY:
+//
+//   - GET  /oauth/:kind/authorize — start the OAuth dance
+//   - GET  /oauth/:kind/callback  — provider callback (persists
+//                                   credentials in `connectors`)
+//   - GET  /connectors            — list providers + per-tenant
+//                                   connection state (for the shell)
+//   - POST /disconnect/:kind      — admin removes credentials
+//
+// Action invocation and webhook receivers moved to:
+//   - /api/tools/<module>.<action> for actions
+//   - /api/webhooks/<module-id>/<event> for inbound webhooks
+//     (mounted by the v2 Module registry)
+
+import { Hono, type Context } from "hono";
 import { eq, and, sql } from "drizzle-orm";
 import type { Db } from "@boringos/db";
 import { connectors } from "@boringos/db";
-import type { ConnectorRegistry, EventBus, ActionRunner, ConnectorCredentials } from "@boringos/connector";
-import { createOAuthManager, createState, verifyState, isSafeReturnTo, refreshOAuthToken } from "@boringos/connector";
-import { verifyCallbackToken } from "@boringos/agent";
 import { generateId } from "@boringos/shared";
-import { installDefaultWorkflows, pauseDefaultWorkflows } from "./connectors/post-connect.js";
+import {
+  createOAuthManager,
+  createState,
+  verifyState,
+  isSafeReturnTo,
+  OAUTH_PROVIDERS,
+  type OAuthConfig,
+} from "./oauth.js";
+import type { EventBus } from "./event-bus.js";
 
-/** What an OAuth-capable connector ships alongside its definition. */
-interface OAuthCredentialed {
-  clientId?: string;
-  clientSecret?: string;
+export interface ConnectorRoutesOptions {
+  /** Origin of the shell SPA, allowed as a returnTo target. */
+  shellOrigin?: string;
 }
 
-function readOAuthClient(connector: unknown): { clientId: string; clientSecret: string } {
-  const c = connector as OAuthCredentialed;
+interface ProviderEntry {
+  kind: string;
+  name: string;
+  description: string;
+  oauth: OAuthConfig;
+}
+
+const PROVIDER_DISPLAY: Record<string, { name: string; description: string }> = {
+  google: { name: "Google Workspace", description: "Gmail + Calendar" },
+  slack: { name: "Slack", description: "Channels, threads, reactions" },
+};
+
+function listProviders(): ProviderEntry[] {
+  return Object.entries(OAUTH_PROVIDERS).map(([kind, oauth]) => ({
+    kind,
+    name: PROVIDER_DISPLAY[kind]?.name ?? kind,
+    description: PROVIDER_DISPLAY[kind]?.description ?? "",
+    oauth,
+  }));
+}
+
+function readEnvClient(kind: string): { clientId?: string; clientSecret?: string } {
+  const env = kind.toUpperCase();
   return {
-    clientId: c.clientId ?? "",
-    clientSecret: c.clientSecret ?? "",
+    clientId: process.env[`${env}_CLIENT_ID`],
+    clientSecret: process.env[`${env}_CLIENT_SECRET`],
   };
 }
 
-function publicOrigin(c: { req: { header: (k: string) => string | undefined } }, fallback: string): string {
+function publicOrigin(c: Context, baseUrl: string): string {
+  const host = c.req.header("X-Forwarded-Host") ?? c.req.header("Host");
   const proto = c.req.header("X-Forwarded-Proto") ?? "http";
-  const host = c.req.header("Host") ?? new URL(fallback).host;
-  return `${proto}://${host}`;
+  if (host) return `${proto}://${host}`;
+  try {
+    return new URL(baseUrl).origin;
+  } catch {
+    return baseUrl;
+  }
 }
 
-export interface ConnectorRoutesOptions {
-  /**
-   * Absolute origin where the shell SPA lives (e.g. http://localhost:5174 in
-   * dev). Used as the default returnTo when the caller doesn't pass one,
-   * and added to the allowlist for returnTo validation.
-   */
-  shellOrigin?: string;
+function resolveReturnTo(raw: string | undefined, fallback: string): string {
+  if (!raw) return fallback;
+  return raw;
 }
 
 export function createConnectorRoutes(
   db: Db,
-  registry: ConnectorRegistry,
-  eventBus: EventBus,
-  actionRunner: ActionRunner,
+  // eventBus is reserved for future webhook routing; kept on the
+  // signature so callers don't have to change.
+  _eventBus: EventBus,
   jwtSecret: string,
   baseUrl: string,
   opts: ConnectorRoutesOptions = {},
 ): Hono {
   const app = new Hono();
-  const shellOrigin =
-    opts.shellOrigin ?? process.env.BORINGOS_SHELL_URL ?? "";
+  const shellOrigin = opts.shellOrigin ?? process.env.BORINGOS_SHELL_URL ?? "";
 
-  function buildAllowedReturnOrigins(callerOrigin: string): string[] {
+  function buildAllowedOrigins(callerOrigin: string): string[] {
     const list = new Set<string>([callerOrigin]);
     if (shellOrigin) list.add(shellOrigin);
-    try {
-      list.add(new URL(baseUrl).origin);
-    } catch {
-      /* ignore */
-    }
     return Array.from(list);
   }
 
-  function resolveReturnTo(rawReturnTo: string | undefined, callerOrigin: string): string {
-    const fallback = `${shellOrigin || callerOrigin}/connectors`;
-    if (!rawReturnTo) return fallback;
-    if (isSafeReturnTo(rawReturnTo, buildAllowedReturnOrigins(callerOrigin))) {
-      return rawReturnTo.startsWith("/")
-        ? `${shellOrigin || callerOrigin}${rawReturnTo}`
-        : rawReturnTo;
-    }
-    return fallback;
-  }
+  // ── OAuth ──────────────────────────────────────────────────
 
-  // ── OAuth ────────────────────────────────────────────────────────────────
-
-  // GET /oauth/:kind/authorize — start OAuth flow
   app.get("/oauth/:kind/authorize", async (c) => {
     const kind = c.req.param("kind");
-    const connector = registry.get(kind);
-    if (!connector) return c.json({ error: `Unknown connector: ${kind}` }, 404);
-    if (!connector.oauth) return c.json({ error: `Connector ${kind} does not support OAuth` }, 400);
+    const provider = OAUTH_PROVIDERS[kind];
+    if (!provider) return c.json({ error: `Unknown provider: ${kind}` }, 404);
 
     const tenantId = c.req.query("tenantId") ?? c.req.header("X-Tenant-Id") ?? "";
     if (!tenantId) return c.json({ error: "tenantId required" }, 400);
 
-    const { clientId, clientSecret } = readOAuthClient(connector);
-    if (!clientId) {
+    const { clientId, clientSecret } = readEnvClient(kind);
+    if (!clientId || !clientSecret) {
       return c.json(
         {
-          error: `Connector ${kind} is missing clientId. Set it when registering the connector with the framework.`,
+          error: `Missing ${kind.toUpperCase()}_CLIENT_ID / ${kind.toUpperCase()}_CLIENT_SECRET in environment.`,
         },
         500,
       );
     }
 
     const callerOrigin = publicOrigin(c, baseUrl);
-    const returnTo = resolveReturnTo(c.req.query("returnTo"), callerOrigin);
+    const allowed = buildAllowedOrigins(callerOrigin);
+    const rawReturn = c.req.query("returnTo");
+    const returnTo = isSafeReturnTo(rawReturn ?? "", allowed)
+      ? rawReturn!
+      : resolveReturnTo(undefined, `${shellOrigin || callerOrigin}/connectors`);
 
-    const oauth = createOAuthManager(connector.oauth, clientId, clientSecret);
+    const oauth = createOAuthManager(provider, clientId, clientSecret);
     const redirectUri = `${callerOrigin}/api/connectors/oauth/${kind}/callback`;
     const state = createState({ tenantId, returnTo }, jwtSecret);
-    const url = oauth.getAuthorizationUrl(redirectUri, state);
-
-    return c.redirect(url);
+    return c.redirect(oauth.getAuthorizationUrl(redirectUri, state));
   });
 
-  // GET /oauth/:kind/callback — OAuth callback from provider
   app.get("/oauth/:kind/callback", async (c) => {
     const kind = c.req.param("kind");
-    const connector = registry.get(kind);
-    if (!connector?.oauth) return c.text("Unknown or non-OAuth connector", 400);
+    const provider = OAUTH_PROVIDERS[kind];
+    if (!provider) return c.text(`Unknown provider: ${kind}`, 400);
 
     const code = c.req.query("code");
     const stateRaw = c.req.query("state") ?? "";
     const error = c.req.query("error");
-
     const callerOrigin = publicOrigin(c, baseUrl);
-    const fallbackReturn = `${shellOrigin || callerOrigin}/connectors`;
+    const fallback = `${shellOrigin || callerOrigin}/connectors`;
 
     if (error) {
       return c.redirect(
-        `${fallbackReturn}?connect=error&kind=${encodeURIComponent(kind)}&reason=${encodeURIComponent(error)}`,
+        `${fallback}?connect=error&kind=${encodeURIComponent(kind)}&reason=${encodeURIComponent(error)}`,
       );
     }
     if (!code) {
       return c.redirect(
-        `${fallbackReturn}?connect=error&kind=${encodeURIComponent(kind)}&reason=missing_code`,
+        `${fallback}?connect=error&kind=${encodeURIComponent(kind)}&reason=missing_code`,
       );
     }
 
     const verified = verifyState(stateRaw, jwtSecret);
     if (!verified.ok || !verified.payload) {
       return c.redirect(
-        `${fallbackReturn}?connect=error&kind=${encodeURIComponent(kind)}&reason=${encodeURIComponent(verified.reason ?? "bad_state")}`,
+        `${fallback}?connect=error&kind=${encodeURIComponent(kind)}&reason=${encodeURIComponent(verified.reason ?? "bad_state")}`,
       );
     }
     const { tenantId, returnTo } = verified.payload;
 
-    const { clientId, clientSecret } = readOAuthClient(connector);
-    if (!clientId) {
+    const { clientId, clientSecret } = readEnvClient(kind);
+    if (!clientId || !clientSecret) {
       return c.redirect(
-        `${fallbackReturn}?connect=error&kind=${encodeURIComponent(kind)}&reason=missing_client_id`,
+        `${fallback}?connect=error&kind=${encodeURIComponent(kind)}&reason=missing_client`,
       );
     }
 
-    const oauth = createOAuthManager(connector.oauth, clientId, clientSecret);
+    const oauth = createOAuthManager(provider, clientId, clientSecret);
     const redirectUri = `${callerOrigin}/api/connectors/oauth/${kind}/callback`;
 
     try {
       const tokens = await oauth.exchangeCode(code, redirectUri);
-
-      const existing = await db.select().from(connectors)
-        .where(and(eq(connectors.tenantId, tenantId), eq(connectors.kind, kind)))
-        .limit(1);
-
       const credentialBag = {
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
         expiresAt: tokens.expiresAt?.toISOString(),
       };
-
+      const existing = await db
+        .select()
+        .from(connectors)
+        .where(and(eq(connectors.tenantId, tenantId), eq(connectors.kind, kind)))
+        .limit(1);
       if (existing[0]) {
-        await db.update(connectors).set({
-          credentials: credentialBag,
-          status: "active",
-          updatedAt: new Date(),
-        }).where(eq(connectors.id, existing[0].id));
+        await db
+          .update(connectors)
+          .set({ credentials: credentialBag, status: "active", updatedAt: new Date() })
+          .where(eq(connectors.id, existing[0].id));
       } else {
         await db.insert(connectors).values({
           id: generateId(),
@@ -176,51 +201,24 @@ export function createConnectorRoutes(
           credentials: credentialBag,
         });
       }
-
-      // N5 — install (or resume) the connector's default workflows.
-      // Best-effort: a failure here shouldn't prevent the user from
-      // reaching the success page. If install partially fails the
-      // user can re-trigger from the connector card later.
-      try {
-        await installDefaultWorkflows(db, tenantId, connector);
-      } catch (err) {
-        console.warn(
-          `[connector ${kind}] default workflow install failed for tenant ${tenantId}:`,
-          err,
-        );
-      }
-
-      await eventBus
-        .emit({
-          connectorKind: kind,
-          type: "connector.connected",
-          tenantId,
-          data: { kind },
-          timestamp: new Date(),
-        })
-        .catch(() => {});
-
-      const redirectTo = `${returnTo}${returnTo.includes("?") ? "&" : "?"}connect=success&kind=${encodeURIComponent(kind)}`;
-      return c.redirect(redirectTo);
+      return c.redirect(`${returnTo}?connect=ok&kind=${encodeURIComponent(kind)}`);
     } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
+      const reason = err instanceof Error ? err.message : "exchange_failed";
       return c.redirect(
-        `${fallbackReturn}?connect=error&kind=${encodeURIComponent(kind)}&reason=${encodeURIComponent(reason)}`,
+        `${fallback}?connect=error&kind=${encodeURIComponent(kind)}&reason=${encodeURIComponent(reason)}`,
       );
     }
   });
 
-  // ── Connector management ─────────────────────────────────────────────────
+  // ── Connection listing ────────────────────────────────────
 
-  // GET /status — list connector status for tenant (session authenticated)
-  app.get("/status", async (c) => {
-    const tenantId = c.req.header("X-Tenant-Id") ?? "";
-
-    // If no tenant from header, resolve from session
+  app.get("/connectors", async (c) => {
+    // Browser flow: resolve tenant from session token.
+    const tenantHeader = c.req.header("X-Tenant-Id");
+    let tenantId = tenantHeader ?? "";
     if (!tenantId) {
       const bearer = c.req.header("Authorization")?.replace("Bearer ", "");
       if (!bearer) return c.json({ error: "Authentication required" }, 401);
-
       const result = await db.execute(sql`
         SELECT ut.tenant_id FROM auth_sessions s
         JOIN user_tenants ut ON ut.user_id = s.user_id
@@ -228,38 +226,18 @@ export function createConnectorRoutes(
       `);
       const rows = result as unknown as Array<{ tenant_id: string }>;
       if (!rows[0]) return c.json({ error: "Invalid session" }, 401);
-
-      const tid = rows[0].tenant_id;
-
-      // Get connected connectors for tenant
-      const connected = await db.select().from(connectors).where(eq(connectors.tenantId, tid));
-
-      // Get all registered connectors
-      const available = registry.list().map((conn) => {
-        const match = connected.find((c) => c.kind === conn.kind);
-        return {
-          kind: conn.kind,
-          name: conn.name,
-          description: conn.description,
-          hasOAuth: !!conn.oauth,
-          connected: !!match,
-          status: match?.status ?? "not_connected",
-          lastSyncAt: match?.lastSyncAt,
-        };
-      });
-
-      return c.json({ connectors: available, tenantId: tid });
+      tenantId = rows[0].tenant_id;
     }
 
     const connected = await db.select().from(connectors).where(eq(connectors.tenantId, tenantId));
-    const available = registry.list().map((conn) => {
-      const match = connected.find((c) => c.kind === conn.kind);
+    const available = listProviders().map((p) => {
+      const match = connected.find((c) => c.kind === p.kind);
       return {
-        kind: conn.kind,
-        name: conn.name,
-        description: conn.description,
-        hasOAuth: !!conn.oauth,
-        oauthScopes: conn.oauth?.scopes ?? [],
+        kind: p.kind,
+        name: p.name,
+        description: p.description,
+        hasOAuth: true,
+        oauthScopes: p.oauth.scopes,
         connected: !!match,
         status: match?.status ?? "not_connected",
         lastSyncAt: match?.lastSyncAt,
@@ -269,7 +247,8 @@ export function createConnectorRoutes(
     return c.json({ connectors: available, tenantId });
   });
 
-  // POST /disconnect/:kind — disconnect a connector
+  // ── Disconnect ────────────────────────────────────────────
+
   app.post("/disconnect/:kind", async (c) => {
     const kind = c.req.param("kind");
     const bearer = c.req.header("Authorization")?.replace("Bearer ", "");
@@ -284,175 +263,11 @@ export function createConnectorRoutes(
     if (!rows[0]) return c.json({ error: "Invalid session" }, 401);
     if (rows[0].role !== "admin") return c.json({ error: "Admin only" }, 403);
 
-    // N6 — pause the connector's default workflows but keep them around
-    // so a reconnect resumes cleanly. Best-effort; the disconnect
-    // should still succeed even if pause fails.
-    try {
-      await pauseDefaultWorkflows(db, rows[0].tenant_id, kind);
-    } catch (err) {
-      console.warn(
-        `[connector ${kind}] default workflow pause failed:`,
-        err,
-      );
-    }
-
-    await db.delete(connectors)
+    await db
+      .delete(connectors)
       .where(and(eq(connectors.tenantId, rows[0].tenant_id), eq(connectors.kind, kind)));
 
     return c.json({ ok: true });
-  });
-
-  // ── Webhooks ─────────────────────────────────────────────────────────────
-
-  // POST /webhooks/:kind — incoming webhook from external service
-  app.post("/webhooks/:kind", async (c) => {
-    const kind = c.req.param("kind");
-    const connector = registry.get(kind);
-    if (!connector) return c.json({ error: `Unknown connector: ${kind}` }, 404);
-    if (!connector.handleWebhook) return c.json({ error: "Connector does not support webhooks" }, 400);
-
-    const headers: Record<string, string> = {};
-    c.req.raw.headers.forEach((v, k) => { headers[k] = v; });
-    const body = await c.req.json().catch(() => ({}));
-
-    const tenantId = c.req.query("tenantId") ?? c.req.header("X-Tenant-Id") ?? "";
-
-    const response = await connector.handleWebhook({
-      method: "POST",
-      headers,
-      body,
-      tenantId,
-    });
-
-    if (response.events) {
-      for (const event of response.events) {
-        await eventBus.emit(event);
-      }
-    }
-
-    return c.json(response.body ?? { ok: true }, response.status as 200);
-  });
-
-  // ── Actions ──────────────────────────────────────────────────────────────
-
-  // POST /actions/:kind/:action — invoke a connector action.
-  //
-  // Two auth modes, distinguished by presence of `X-Tenant-Id`:
-  //   • Header present  → human caller; Bearer is a session token, look
-  //     up via auth_sessions and verify the user belongs to the tenant.
-  //   • Header absent   → agent caller; Bearer is an HMAC-signed JWT,
-  //     verify via verifyCallbackToken and read claims.
-  app.post("/actions/:kind/:action", async (c) => {
-    const authHeader = c.req.header("Authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      return c.json({ error: "Missing Authorization header" }, 401);
-    }
-    const bearer = authHeader.slice(7);
-    const tenantHeader = c.req.header("X-Tenant-Id") ?? "";
-
-    let tenantId: string;
-    let agentId: string | undefined;
-    let userId: string | undefined;
-
-    if (tenantHeader) {
-      // tenantHeader / bearer must be a valid UUID + opaque token for
-      // the auth_sessions / user_tenants join to succeed. Treat *any*
-      // failure (bad cast, no row, expired) as 401 — never leak the
-      // underlying SQL error.
-      try {
-        const result = await db.execute(sql`
-          SELECT s.user_id, ut.tenant_id
-            FROM auth_sessions s
-            JOIN user_tenants ut ON ut.user_id = s.user_id
-           WHERE s.token = ${bearer}
-             AND ut.tenant_id = ${tenantHeader}
-             AND s.expires_at > NOW()
-           LIMIT 1
-        `);
-        const rows = result as unknown as Array<{ user_id: string; tenant_id: string }>;
-        if (!rows[0]) return c.json({ error: "Invalid session" }, 401);
-        tenantId = rows[0].tenant_id;
-        userId = rows[0].user_id;
-      } catch {
-        return c.json({ error: "Invalid session" }, 401);
-      }
-    } else {
-      const claims = verifyCallbackToken(bearer, jwtSecret);
-      if (!claims) return c.json({ error: "Invalid or expired token" }, 401);
-      tenantId = claims.tenant_id;
-      agentId = claims.agent_id;
-    }
-
-    const kind = c.req.param("kind");
-    const action = c.req.param("action");
-    const body = await c.req.json() as Record<string, unknown>;
-
-    const rows = await db
-      .select()
-      .from(connectors)
-      .where(and(eq(connectors.tenantId, tenantId), eq(connectors.kind, kind)))
-      .limit(1);
-
-    const connectorRow = rows[0];
-    if (!connectorRow) return c.json({ error: `Connector ${kind} not configured for this tenant` }, 404);
-
-    const creds = (connectorRow.credentials as Record<string, string>) ?? {};
-    const credentials: ConnectorCredentials = {
-      accessToken: creds.accessToken ?? "",
-      refreshToken: creds.refreshToken,
-      config: connectorRow.config as Record<string, unknown>,
-    };
-
-    let resultData = await actionRunner.execute(
-      { connectorKind: kind, action, tenantId, agentId, userId, inputs: body },
-      credentials,
-    );
-
-    // OAuth refresh-and-retry. Access tokens for Google last 1 hour;
-    // without this every call past the first hour 401s and forces a
-    // user-visible reconnect. The workflow handler does the same
-    // dance — we share `refreshOAuthToken` so both stay in sync.
-    if (
-      !resultData.success &&
-      credentials.refreshToken &&
-      typeof resultData.error === "string" &&
-      /\b401\b/.test(resultData.error)
-    ) {
-      const refreshed = await refreshOAuthToken(kind, credentials.refreshToken);
-      if (refreshed) {
-        await db
-          .update(connectors)
-          .set({
-            credentials: {
-              ...creds,
-              accessToken: refreshed.accessToken,
-              expiresAt: refreshed.expiresAt,
-            },
-            updatedAt: new Date(),
-          })
-          .where(eq(connectors.id, connectorRow.id))
-          .catch(() => {});
-        resultData = await actionRunner.execute(
-          { connectorKind: kind, action, tenantId, agentId, userId, inputs: body },
-          { ...credentials, accessToken: refreshed.accessToken },
-        );
-      }
-    }
-
-    return c.json(resultData, resultData.success ? 200 : 400);
-  });
-
-  // GET /connectors — list available connectors and their capabilities
-  app.get("/connectors", (c) => {
-    const list = registry.list().map((conn) => ({
-      kind: conn.kind,
-      name: conn.name,
-      description: conn.description,
-      events: conn.events,
-      actions: conn.actions,
-      hasOAuth: !!conn.oauth,
-    }));
-    return c.json({ connectors: list });
   });
 
   return app;

@@ -228,6 +228,161 @@ export function useSettings() {
 // origin_kind is `agent_action`; the DecisionCard in the Tasks UI
 // is the approve/reject affordance.
 
+// ── Routines ──────────────────────────────────────────────────────────────
+
+export function useRoutines() {
+  const client = useClient();
+  const queryClient = useQueryClient();
+
+  const query = useQuery({
+    queryKey: ["routines"],
+    queryFn: () => client.getRoutines(),
+  });
+
+  const createRoutine = useMutation({
+    mutationFn: (data: Record<string, unknown>) => client.createRoutine(data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["routines"] }),
+  });
+
+  const updateRoutine = useMutation({
+    mutationFn: (params: { routineId: string; data: Record<string, unknown> }) =>
+      client.updateRoutine(params.routineId, params.data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["routines"] }),
+  });
+
+  const deleteRoutine = useMutation({
+    mutationFn: (routineId: string) => client.deleteRoutine(routineId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["routines"] }),
+  });
+
+  const triggerRoutine = useMutation({
+    mutationFn: (routineId: string) => client.triggerRoutine(routineId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["routines"] }),
+  });
+
+  return {
+    routines: query.data ?? [],
+    isLoading: query.isLoading,
+    error: query.error,
+    createRoutine: createRoutine.mutateAsync,
+    updateRoutine: updateRoutine.mutateAsync,
+    deleteRoutine: deleteRoutine.mutateAsync,
+    triggerRoutine: triggerRoutine.mutateAsync,
+  };
+}
+
+// ── Workflows ─────────────────────────────────────────────────────────────
+
+export function useWorkflows() {
+  const client = useClient();
+  const queryClient = useQueryClient();
+
+  const query = useQuery({
+    queryKey: ["workflows"],
+    queryFn: () => client.getWorkflows(),
+  });
+
+  const createWorkflow = useMutation({
+    mutationFn: (data: Record<string, unknown>) => client.createWorkflow(data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["workflows"] }),
+  });
+
+  const updateWorkflow = useMutation({
+    mutationFn: (params: { workflowId: string; data: Record<string, unknown> }) =>
+      client.updateWorkflow(params.workflowId, params.data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["workflows"] }),
+  });
+
+  const deleteWorkflow = useMutation({
+    mutationFn: (workflowId: string) => client.deleteWorkflow(workflowId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["workflows"] }),
+  });
+
+  return {
+    workflows: query.data ?? [],
+    isLoading: query.isLoading,
+    error: query.error,
+    createWorkflow: createWorkflow.mutateAsync,
+    updateWorkflow: updateWorkflow.mutateAsync,
+    deleteWorkflow: deleteWorkflow.mutateAsync,
+  };
+}
+
+export function useWorkflowRuns(workflowId?: string) {
+  const client = useClient();
+
+  const query = useQuery({
+    queryKey: ["workflowRuns", workflowId],
+    queryFn: () => client.getWorkflowRuns(workflowId!),
+    enabled: !!workflowId,
+  });
+
+  return {
+    runs: query.data ?? [],
+    isLoading: query.isLoading,
+    error: query.error,
+  };
+}
+
+// ── Budgets ───────────────────────────────────────────────────────────────
+
+export function useBudgets() {
+  const client = useClient();
+  const queryClient = useQueryClient();
+
+  const query = useQuery({
+    queryKey: ["budgets"],
+    queryFn: () => client.getBudgets(),
+  });
+
+  const incidents = useQuery({
+    queryKey: ["budgetIncidents"],
+    queryFn: () => client.getBudgetIncidents(),
+  });
+
+  const createBudget = useMutation({
+    mutationFn: (data: Record<string, unknown>) => client.createBudget(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["budgets"] });
+      queryClient.invalidateQueries({ queryKey: ["budgetIncidents"] });
+    },
+  });
+
+  const deleteBudget = useMutation({
+    mutationFn: (budgetId: string) => client.deleteBudget(budgetId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["budgets"] });
+      queryClient.invalidateQueries({ queryKey: ["budgetIncidents"] });
+    },
+  });
+
+  return {
+    policies: query.data ?? [],
+    incidents: incidents.data ?? [],
+    isLoading: query.isLoading,
+    error: query.error,
+    createBudget: createBudget.mutateAsync,
+    deleteBudget: deleteBudget.mutateAsync,
+  };
+}
+
+// ── Costs ─────────────────────────────────────────────────────────────────
+
+export function useCosts() {
+  const client = useClient();
+
+  const query = useQuery({
+    queryKey: ["costs"],
+    queryFn: () => client.getCosts(),
+  });
+
+  return {
+    costs: query.data ?? [],
+    isLoading: query.isLoading,
+    error: query.error,
+  };
+}
+
 // ── Connectors ───────────────────────────────────────────────────────────────
 
 export function useConnectors() {

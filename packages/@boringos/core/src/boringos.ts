@@ -64,6 +64,7 @@ import { createDeviceAuthRoutes } from "./device-auth-routes.js";
 import { createRoutineScheduler } from "./scheduler.js";
 import { createInboxSnoozeTicker } from "./inbox-snooze-ticker.js";
 import { createInboxGmailReverseSyncTicker } from "./inbox-gmail-reverse-sync.js";
+import { createInboxGmailForwardSyncTicker } from "./inbox-gmail-forward-sync.js";
 // v1 copilot routes deleted — copilot is a v2 module, conversations
 // go through /api/admin/tasks/* with originKind="copilot"
 import { createPluginRegistry } from "./plugin-system.js";
@@ -998,6 +999,12 @@ export class BoringOS {
     // wired unconditionally.
     const snoozeTicker = createInboxSnoozeTicker(dbConn.db);
     snoozeTicker.start();
+
+    // Forward sync — ingest new Gmail messages into inbox_items every
+    // 30 seconds. Replaces the v1 `gmail.gmail-sync` workflow + routine
+    // that the deleted workflow engine used to run.
+    const forwardSyncTicker = createInboxGmailForwardSyncTicker(dbConn.db);
+    forwardSyncTicker.start();
 
     // Reverse sync — pull state changes from Gmail back into Hebbs
     // every 2 minutes. Skipped silently if no Gmail connector is wired

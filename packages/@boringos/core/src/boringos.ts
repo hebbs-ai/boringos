@@ -64,6 +64,13 @@ import {
   createToolRegistry,
   createSkillRegistry,
   createModuleRegistry,
+  createSkillsProvider,
+  createToolCatalogProvider,
+} from "@boringos/agent";
+import type {
+  ToolRegistry as V2ToolRegistry,
+  SkillRegistry as V2SkillRegistry,
+  ModuleRegistry as V2ModuleRegistry,
 } from "@boringos/agent";
 import type { Module } from "@boringos/module-sdk";
 import { createConnectorRoutes } from "./connector-routes.js";
@@ -275,10 +282,36 @@ export class BoringOS {
       runtimes.register(rt);
     }
 
-    // 5. Build context pipeline
+    // 5. v2 — build Skills + Tools + Modules registries (always
+    //    constructed; only populated + mounted when modules
+    //    exist). Doing this before the pipeline build means the
+    //    v2 providers can be added to the pipeline alongside v1's.
+    const v2ToolRegistry: V2ToolRegistry = createToolRegistry();
+    const v2SkillRegistry: V2SkillRegistry = createSkillRegistry();
+    const v2ModuleRegistry: V2ModuleRegistry = createModuleRegistry({
+      tools: v2ToolRegistry,
+      skills: v2SkillRegistry,
+    });
+    for (const mod of this.v2Modules) {
+      v2ModuleRegistry.register(mod);
+    }
+    const v2HasModules = this.v2Modules.length > 0;
+
+    // 6. Build context pipeline
     const pipeline = new ContextPipeline();
     for (const provider of this.contextProviders) {
       pipeline.add(provider);
+    }
+
+    // v2 prompt sections — additive. Registered alongside v1's
+    // providers when modules are present, so the agent's prompt
+    // shows BOTH v1 sections (drive-skill, memory-skill, etc.)
+    // AND v2 sections (## Skills + ## Available tools). Cutover
+    // removes the v1 providers; until then this overlap is
+    // intentional and gives us the parity safety net.
+    if (v2HasModules) {
+      pipeline.add(createSkillsProvider({ registry: v2SkillRegistry }));
+      pipeline.add(createToolCatalogProvider({ registry: v2ToolRegistry }));
     }
 
     // 6. Create agent engine
@@ -646,20 +679,10 @@ export class BoringOS {
     const callbackApp = createCallbackRoutes(dbConn.db, agentEngine, jwtSecret);
     app.route("/api/agent", callbackApp);
 
-    // v2 — Skills + Tools + Modules. Mounted only when at least
-    // one Module has been registered via `app.module(...)`. Build
-    // the registries, walk every Module's tools/skills into them,
-    // and mount the unified dispatch endpoint.
-    if (this.v2Modules.length > 0) {
-      const v2ToolRegistry = createToolRegistry();
-      const v2SkillRegistry = createSkillRegistry();
-      const v2ModuleRegistry = createModuleRegistry({
-        tools: v2ToolRegistry,
-        skills: v2SkillRegistry,
-      });
-      for (const mod of this.v2Modules) {
-        v2ModuleRegistry.register(mod);
-      }
+    // v2 — mount the unified dispatch endpoint when modules are
+    // present. The registries themselves were built earlier (step 5)
+    // so the context pipeline could add the v2 providers.
+    if (v2HasModules) {
       const v2App = createV2Routes({
         db: dbConn.db,
         registry: v2ToolRegistry,

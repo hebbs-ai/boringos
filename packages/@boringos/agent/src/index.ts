@@ -69,6 +69,8 @@ export {
   createModuleRegistry,
   dispatch,
   invoke,
+  createSkillsProvider,
+  createToolCatalogProvider,
 } from "./v2/index.js";
 export type {
   ToolRegistry,
@@ -80,4 +82,6 @@ export type {
   DispatchResult,
   DispatchDeps,
   DispatchOptions,
+  SkillsProviderDeps,
+  ToolCatalogProviderDeps,
 } from "./v2/index.js";

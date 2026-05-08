@@ -32,3 +32,8 @@ export type {
   DispatchDeps,
   DispatchOptions,
 } from "./dispatcher.js";
+
+export { createSkillsProvider } from "./skills-provider.js";
+export type { SkillsProviderDeps } from "./skills-provider.js";
+export { createToolCatalogProvider } from "./tool-catalog-provider.js";
+export type { ToolCatalogProviderDeps } from "./tool-catalog-provider.js";

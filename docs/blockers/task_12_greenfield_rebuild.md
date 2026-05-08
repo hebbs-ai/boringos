@@ -1253,14 +1253,28 @@ is sourced from registries and DB rows.
 - Skills screen: per-tenant skill overrides.
 - **Deliverable:** browser shell knows about Modules.
 
-### Phase 11 — docs + examples (2-3 days)
-- Rewrite `README.md` around Skills + Tools + Modules.
-- Rewrite `CLAUDE.md` to match v2.
-- Rewrite `examples/quickstart` as a "build a Module" tutorial.
-- Move all completed v1 blocker docs to `docs/done/v1/`.
-- Archive the v1 architecture diagram; ship a v2 one.
-- **Deliverable:** a new dev can read the README + quickstart and
-  ship a Module within an hour.
+### Phase 11 — docs + examples (12-15 days)
+**Detailed plan: see `task_13_v2_docs_rewrite.md`.**
+
+This phase has its own task because the doc layer is substantial
+and load-bearing — the abstraction is only as good as the doc
+that teaches it. Summary:
+
+- Eight reference docs: `README.md`, `CLAUDE.md`, `MODULES.md`,
+  `TOOLS.md`, `SKILLS.md`, `MIGRATION-V1-TO-V2.md`,
+  `BUILD-A-MODULE.md`, `CONTRIBUTING.md`.
+- 18 per-package READMEs updated.
+- Four runnable examples: `quickstart`, `connector`, `capability`,
+  `hybrid` (mini-CRM).
+- Three architecture diagrams.
+- The **build-a-Module guide** uses CRM as the canonical
+  worked example throughout — exercises every Module dimension
+  (schema + tools + skills + admin routes + UI + workflows +
+  agents + routines + lifecycle).
+- Move all completed v1 blocker docs to `docs/blockers/done/v1/`.
+- **Deliverable:** a new contributor can read
+  `BUILD-A-MODULE.md` and ship a working CRM Module in under one
+  hour. This is the abstraction's teachability test.
 
 ### Phase 12 — cutover (1 day)
 - Drop v1 DB.

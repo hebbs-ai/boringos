@@ -21,6 +21,8 @@ export { BoringOS } from "./boringos.js";
 export { createFrameworkModule } from "./v2-modules/framework.js";
 export { createMemoryModule } from "./v2-modules/memory.js";
 export { createDriveModule } from "./v2-modules/drive.js";
+export { createWorkflowModule } from "./v2-modules/workflow.js";
+export { createInboxModule } from "./v2-modules/inbox.js";
 
 // Re-export key types from sub-packages for convenience
 export type { MemoryProvider } from "@boringos/memory";

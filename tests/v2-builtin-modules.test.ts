@@ -15,6 +15,8 @@ describe("v2 — built-in modules", () => {
       createFrameworkModule,
       createMemoryModule,
       createDriveModule,
+      createWorkflowModule,
+      createInboxModule,
     } = await import("@boringos/core");
     const { signCallbackToken } = await import("@boringos/agent");
     const { mkdtemp } = await import("node:fs/promises");
@@ -32,6 +34,8 @@ describe("v2 — built-in modules", () => {
     app.module(createFrameworkModule);
     app.module(createMemoryModule);
     app.module(createDriveModule);
+    app.module(createWorkflowModule);
+    app.module(createInboxModule);
 
     const server = await app.listen(0);
     try {
@@ -81,6 +85,28 @@ describe("v2 — built-in modules", () => {
         result: { files: Array<{ path: string }> };
       };
       expect(listedBody.result.files.some((f) => f.path === "test.txt")).toBe(true);
+
+      // workflow.list returns an empty array for a fresh tenant.
+      const wfList = await fetch(`${server.url}/api/tools/workflow.list`, {
+        method: "POST",
+        headers: auth,
+        body: JSON.stringify({}),
+      });
+      expect(wfList.status).toBe(200);
+      const wfListBody = await wfList.json() as { ok: boolean; result: { workflows: unknown[] } };
+      expect(wfListBody.ok).toBe(true);
+      expect(Array.isArray(wfListBody.result.workflows)).toBe(true);
+
+      // inbox.list returns empty array for a fresh tenant.
+      const inList = await fetch(`${server.url}/api/tools/inbox.list`, {
+        method: "POST",
+        headers: auth,
+        body: JSON.stringify({}),
+      });
+      expect(inList.status).toBe(200);
+      const inListBody = await inList.json() as { ok: boolean; result: { items: unknown[] } };
+      expect(inListBody.ok).toBe(true);
+      expect(Array.isArray(inListBody.result.items)).toBe(true);
 
       // memory.remember when no provider configured: graceful error.
       const memOut = await fetch(`${server.url}/api/tools/memory.remember`, {

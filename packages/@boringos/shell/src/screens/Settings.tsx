@@ -16,6 +16,7 @@ import { BudgetsPanel } from "./Settings/BudgetsPanel.js";
 import { V2ModulesPanel } from "./Settings/V2ModulesPanel.js";
 import { V2ToolsPanel } from "./Settings/V2ToolsPanel.js";
 import { V2ToolCallsPanel } from "./Settings/V2ToolCallsPanel.js";
+import { V2WorkflowPalettePanel } from "./Settings/V2WorkflowPalettePanel.js";
 
 type Tab = { id: string; label: string };
 
@@ -35,6 +36,7 @@ export function Settings() {
           { id: "v2-modules", label: "Modules" },
           { id: "v2-tools", label: "Tool catalog" },
           { id: "v2-tool-calls", label: "Tool calls" },
+          { id: "v2-workflow-palette", label: "Workflow blocks" },
         ]
       : []),
     ...panels.map((p) => ({
@@ -100,6 +102,8 @@ export function Settings() {
           {active === "v2-tools" && <V2ToolsPanel />}
 
           {active === "v2-tool-calls" && <V2ToolCallsPanel />}
+
+          {active === "v2-workflow-palette" && <V2WorkflowPalettePanel />}
 
           {activePanel && (
             <SlotRenderer

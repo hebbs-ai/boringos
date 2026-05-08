@@ -56,6 +56,42 @@ boringos/
 
 ---
 
+## Skills — every component teaches the agent
+
+The framework's prompt-side abstraction. Every component (connector,
+app, agent, plus core subsystems like memory and drive) ships a
+**`SKILL.md`** that gets concatenated into the agent's system
+prompt under `## Skills`. The agent reads them once per wake; they
+describe how to think about and use that component.
+
+| Component kind | Where the skill lives | Loaded into prompt by |
+|---|---|---|
+| **Connector** (Google, Slack, …) | `SKILL.md` in the connector package, exposed via `ConnectorDefinition.skillMarkdown()` | Skill registry (every connector contributes one) |
+| **App** (CRM, custom) | `SKILL.md` in the app package, registered via `app.route(..., { agentDocs })` today | App registry / api-catalog provider |
+| **Agent** (per-row) | The `agents.instructions` DB column **plus** the persona bundle keyed off `agents.role` (markdown in `packages/@boringos/agent/src/personas/<role>/`) | `persona` + `agent-instructions` providers |
+| **Memory / drive / approvals / runtime** | `skillMarkdown()` on the provider interface (`MemoryProvider`, `RuntimeModule`, …) | The matching context provider |
+| **Tenant-curated** (style guides, runbooks) | Synced via the admin skill system (`/api/admin/skills`, github / url sources, trust levels) — symlinked into the agent's working directory | `injectSkills(db, agentId, workDir, config)` |
+
+So when this doc says "the agent has a skill," it means: markdown
+that lands in the agent's system prompt. For an agent that markdown
+comes from two places stitched together — a role-based persona
+bundle (shared across all agents of that role) and an `instructions`
+column (per-agent custom text). Same shape, two sources, both
+markdown, both rendered as part of the prompt.
+
+**Direction (drafted in `docs/blockers/task_11_skills_and_tools.md`):**
+collapse the function-form `skillMarkdown()` into a literal
+`SKILL.md` file shipped at the root of every package. One file
+shape across connectors, apps, and built-in components. The agent
+DB column and persona markdown stay where they are — they're
+already files / strings, just per-row instead of per-package.
+
+Every connector, app, or agent has a SKILL.md (or its current
+equivalent). When you author one, that's where the behavioral
+teaching goes — not into hand-edited copies of `protocol.ts`.
+
+---
+
 ## Commands
 
 ```bash

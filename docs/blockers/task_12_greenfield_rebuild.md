@@ -674,6 +674,167 @@ handler walks a DAG and invokes other tools internally.
 
 ---
 
+## 13b. Workflows — the visual DAG editor stays
+
+Killing `BlockHandler` does **not** kill DAGs. Visual workflows are
+load-bearing UX; the editor, the canvas, the drag-and-drop, the
+branches, the for-each — all stay. What changes is what a "block"
+*is*, not what a workflow looks like.
+
+### 13b.1 What stays
+
+- The React Flow canvas + dagre auto-layout
+- The `workflows` table (`{ blocks, edges }` JSONB)
+- The `workflow_runs` table and live run-status streaming
+- Drag-and-drop block composition
+- Condition blocks with true/false branches
+- For-each iteration over upstream arrays
+- `{{upstream.field}}` template variable substitution
+- Run history, replay (`RunDiffView`), step-by-step debugging
+- Triggers: cron, webhook, event
+- Export / import workflow as JSON
+
+### 13b.2 What changes — two kinds of blocks
+
+In v1, blocks are TypeScript handlers registered in
+`BlockHandlerRegistry`. There are 9 of them and they are the
+entire universe of "what a block can do."
+
+In v2, every block is one of two things:
+
+| Block kind | What it does | Count |
+|---|---|---|
+| **Control flow** | Built into the `workflow` Module's runtime: `condition`, `for_each`, `delay`, `transform`, `branch` | 5 fixed primitives |
+| **Tool block** | Invokes any registered Tool by name | One per tool in the registry — **grows automatically with installed Modules** |
+
+Tool blocks are **not** hand-coded. The palette walks the tool
+registry and renders one entry per tool. Install a Module → its
+tools become blocks instantly.
+
+### 13b.3 Block schema in `workflows.definition`
+
+Each node in the DAG carries:
+
+| Field | Purpose |
+|---|---|
+| `id` | Local node id |
+| `kind` | `"trigger"` \| `"tool"` \| `"condition"` \| `"for_each"` \| `"delay"` \| `"transform"` \| `"branch"` |
+| `tool` | (only when `kind: "tool"`) Full tool name, e.g. `"slack.post_message"` |
+| `inputs` | (only when `kind: "tool"`) Object matching the tool's input schema; values may contain `{{nodeId.field}}` template references |
+| `config` | (control-flow only) Per-kind config: `field` + `operator` + `value` for condition, `items` for for-each, `ms` for delay, `mapping` for transform |
+
+Edges keep the v1 shape: `{ id, sourceBlockId, targetBlockId,
+sourceHandle? }`.
+
+### 13b.4 The visual editor
+
+Today's editor (`@boringos/workflow-ui`) ships hand-written
+config forms per block type: `TriggerForm`, `ConditionForm`,
+`ForEachForm`, `WakeAgentForm`, etc. Each new block type means new
+form code.
+
+Tomorrow's editor:
+
+1. **Palette = control-flow primitives + tool registry.** Always
+   in sync with what's installed. Tenant installs Slack → Slack's
+   tools appear as draggable blocks the next time the editor
+   opens.
+2. **Block config forms auto-generate from the tool's Zod
+   schema.** Every required input becomes a form field; the
+   field type (string / number / select / textarea) is inferred
+   from the schema. No hand-written forms per tool.
+3. **Type-safe wiring.** When a downstream node references
+   `{{upstream.field}}`, the editor knows the upstream tool's
+   output schema and validates the reference. Bad refs flag in
+   the canvas, not at runtime.
+4. **Output schema preview.** Hovering a node shows what fields
+   are available downstream — sourced from the tool's `output`
+   Zod schema (already a Tool spec field, see §8).
+5. **Tool docs inline.** The tool's `description` and (optional)
+   `examples` render in a panel next to the config form, sourced
+   from the tool registry.
+
+### 13b.5 Workflows are themselves a tool
+
+The workflow runtime is the `workflow` Module's
+`workflow.run(workflowId, inputs)` tool. Its handler:
+
+1. Loads the workflow definition from `workflows`.
+2. Builds the in-memory DAG.
+3. Walks topologically. For each node:
+   - If `kind: "tool"`: looks up the tool, validates inputs
+     (with template substitution from upstream node outputs),
+     dispatches via the tool registry. Same dispatcher as direct
+     HTTP tool calls — same audit, same idempotency, same
+     error model.
+   - If control flow: handled inline by the runtime (no registry
+     lookup).
+4. Records each node's input + output + duration in
+   `workflow_runs.steps` (jsonb) AND writes a `tool_calls` row
+   per tool invocation.
+5. Returns the final node's output.
+
+Because `workflow.run` is itself a tool:
+- A workflow can call another workflow (compose workflows).
+- An agent can invoke a workflow as a tool from a system prompt.
+- A routine can target a workflow the same way it targets any
+  other tool.
+- The admin UI's "run workflow now" button is the same code path
+  as any tool invocation.
+
+### 13b.6 Triggers
+
+Triggers stay as a workflow concept (not tools — they're entry
+points, not callable):
+
+- **Cron trigger** — a routine row pointing at the workflow's
+  `workflow.run` tool with the workflow id pre-filled. Routines
+  already do scheduled tool calls; cron-triggered workflows are
+  just routines targeting `workflow.run`. **No separate cron
+  loop for workflows.**
+- **Webhook trigger** — a Module's webhook handler invokes
+  `workflow.run` for matching events.
+- **Event trigger** — the framework's event bus invokes
+  `workflow.run` when a registered event type fires.
+
+This collapses three trigger code paths into one (all roads lead
+to `workflow.run`).
+
+### 13b.7 What this enables
+
+- A tenant builds a custom workflow without writing code.
+  Available blocks = installed Modules' tools. UX is "click +
+  drag + connect."
+- A Module ships a default workflow as part of its `routines`
+  field — the tenant gets it pre-configured on install, and can
+  edit it in the visual editor.
+- Adding a new block to the palette = adding a tool to a Module.
+  No framework PR needed for end users.
+- Workflow + tool + routine all converge on one runtime,
+  one audit trail, one error model.
+
+### 13b.8 Migration of existing v1 BlockHandlers
+
+| v1 BlockHandler | v2 replacement |
+|---|---|
+| `condition` | Control-flow primitive (built-in) |
+| `delay` | Control-flow primitive (built-in) |
+| `transform` | Control-flow primitive (built-in) |
+| `for-each` | Control-flow primitive (built-in) |
+| `wake-agent` | Tool: `framework.agents.wake` |
+| `connector-action` | Replaced by direct tool blocks (e.g. `slack.post_message`) |
+| `create-inbox-item` | Tool: `inbox.create_item` |
+| `emit-event` | Tool: `framework.events.emit` |
+| `trigger` | Stays as the entry-point node kind (not a handler — just a marker) |
+
+Existing v1 workflow definitions need a one-time JSON rewrite at
+cutover. Greenfield, so this is a script run during v2 launch
+that does NOT preserve existing workflows — tenants rebuild them.
+(If we want to preserve, the rewrite is mechanical: map block
+types via the table above.)
+
+---
+
 ## 14. Built-in modules to ship in v2
 
 The minimum viable v2 has these built-ins. Each is its own

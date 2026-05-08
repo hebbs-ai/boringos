@@ -95,7 +95,7 @@ export function ScheduleMeetingModal({ item, onClose, onScheduled }: ScheduleMee
       try {
         const now = new Date();
         const end = new Date(now.getTime() + WINDOW_DAYS * 24 * 60 * 60 * 1000);
-        const result = await client.invokeAction("google", "find_free_slots", {
+        const result = await client.invokeAction("google", "calendar.find_free_slots", {
           timeMin: now.toISOString(),
           timeMax: end.toISOString(),
           durationMinutes: DURATION_MINUTES,
@@ -128,7 +128,7 @@ export function ScheduleMeetingModal({ item, onClose, onScheduled }: ScheduleMee
         .filter((a) => a.length > 0 && a.includes("@"));
 
       // 1) Create the event.
-      const create = await client.invokeAction("google", "create_event", {
+      const create = await client.invokeAction("google", "calendar.create_event", {
         summary: title,
         startTime: picked.start,
         endTime: picked.end,
@@ -155,7 +155,7 @@ export function ScheduleMeetingModal({ item, onClose, onScheduled }: ScheduleMee
         ]
           .filter(Boolean)
           .join("\n");
-        await client.invokeAction("google", "send_email", {
+        await client.invokeAction("google", "gmail.send_email", {
           to: senderEmail,
           subject,
           body,

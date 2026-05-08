@@ -82,7 +82,7 @@ export function ReplyComposer({
         onSent?.(body);
         return;
       }
-      const result = await client.invokeAction("google", "send_email", {
+      const result = await client.invokeAction("google", "gmail.send_email", {
         to,
         subject,
         body,

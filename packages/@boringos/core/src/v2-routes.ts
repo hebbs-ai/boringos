@@ -13,19 +13,27 @@
 // route tree is not added — keeps v1-only deployments identical.
 
 import { Hono } from "hono";
+import { sql } from "drizzle-orm";
 import type { Db } from "@boringos/db";
 import {
   verifyCallbackToken,
   dispatch,
 } from "@boringos/agent";
 import type {
-  CallbackTokenClaims,
   ToolRegistry,
   InstallManager,
 } from "@boringos/agent";
+import type { ToolInvocationSource } from "@boringos/module-sdk";
+
+interface ResolvedAuth {
+  tenantId: string;
+  agentId?: string;
+  runId?: string;
+  invokedBy: ToolInvocationSource;
+}
 
 type AuthEnv = {
-  Variables: { claims: CallbackTokenClaims };
+  Variables: { auth: ResolvedAuth };
 };
 
 export interface V2RoutesDeps {
@@ -40,6 +48,10 @@ export interface V2RoutesDeps {
 export function createV2Routes(deps: V2RoutesDeps): Hono<AuthEnv> {
   const app = new Hono<AuthEnv>();
 
+  // Dual-mode auth: agents present a callback JWT (signed by the
+  // engine when a run is launched); the shell + admin tooling
+  // present a session bearer token. Either resolves to a tenant
+  // context the dispatcher can use.
   app.use("/*", async (c, next) => {
     const authHeader = c.req.header("Authorization");
     if (!authHeader?.startsWith("Bearer ")) {
@@ -49,19 +61,41 @@ export function createV2Routes(deps: V2RoutesDeps): Hono<AuthEnv> {
       );
     }
     const token = authHeader.slice(7);
+
+    // 1) Callback JWT (agent runtime).
     const claims = verifyCallbackToken(token, deps.jwtSecret);
-    if (!claims) {
-      return c.json(
-        { ok: false, error: { code: "permission_denied", message: "Invalid or expired token", retryable: false } },
-        401,
-      );
+    if (claims) {
+      c.set("auth", {
+        tenantId: claims.tenant_id,
+        agentId: claims.agent_id,
+        runId: claims.sub,
+        invokedBy: "agent",
+      });
+      return next();
     }
-    c.set("claims", claims);
-    await next();
+
+    // 2) Session bearer (shell user).
+    const result = await deps.db.execute(sql`
+      SELECT ut.tenant_id
+        FROM auth_sessions s
+        JOIN user_tenants ut ON ut.user_id = s.user_id
+       WHERE s.token = ${token} AND s.expires_at > NOW()
+       LIMIT 1
+    `);
+    const rows = result as unknown as Array<{ tenant_id: string }>;
+    if (rows[0]?.tenant_id) {
+      c.set("auth", { tenantId: rows[0].tenant_id, invokedBy: "admin" });
+      return next();
+    }
+
+    return c.json(
+      { ok: false, error: { code: "permission_denied", message: "Invalid or expired token", retryable: false } },
+      401,
+    );
   });
 
   app.post("/:fullName", async (c) => {
-    const claims = c.get("claims");
+    const auth = c.get("auth");
     const fullName = c.req.param("fullName");
     let body: unknown = {};
     try {
@@ -84,7 +118,7 @@ export function createV2Routes(deps: V2RoutesDeps): Hono<AuthEnv> {
       if (moduleId) {
         const installed = await deps.installManager.isInstalled(
           moduleId,
-          claims.tenant_id,
+          auth.tenantId,
         );
         if (!installed) {
           return c.json(
@@ -112,10 +146,10 @@ export function createV2Routes(deps: V2RoutesDeps): Hono<AuthEnv> {
         fullName,
         body,
         {
-          tenantId: claims.tenant_id,
-          agentId: claims.agent_id,
-          runId: claims.sub,
-          invokedBy: "agent",
+          tenantId: auth.tenantId,
+          agentId: auth.agentId,
+          runId: auth.runId,
+          invokedBy: auth.invokedBy,
         },
         { idempotencyKey },
       );

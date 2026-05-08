@@ -95,7 +95,7 @@ export function Calendar() {
     queryKey: ["calendar", "list_events", "primary"],
     queryFn: async () => {
       const { timeMin, timeMax } = rangeIso();
-      const result = await client.invokeAction("google", "list_events", {
+      const result = await client.invokeAction("google", "calendar.list_events", {
         timeMin,
         timeMax,
         maxResults: 100,
@@ -661,7 +661,7 @@ function NewEventModal({ onClose, onCreated }: NewEventModalProps) {
         .map((a) => a.trim())
         .filter((a) => a.length > 0 && a.includes("@"));
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-      const result = await client.invokeAction("google", "create_event", {
+      const result = await client.invokeAction("google", "calendar.create_event", {
         summary: title.trim(),
         description: description.trim() || undefined,
         startTime: new Date(startStr).toISOString(),

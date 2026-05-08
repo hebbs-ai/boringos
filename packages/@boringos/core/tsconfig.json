@@ -16,6 +16,7 @@
     { "path": "../module-sdk" },
     { "path": "../pipeline" },
     { "path": "../connector" },
+    { "path": "../connector-slack" },
     { "path": "../workflow" }
   ]
 }

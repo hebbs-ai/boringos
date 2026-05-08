@@ -19,6 +19,7 @@
     "@boringos/agent": "workspace:*",
     "@boringos/app-sdk": "workspace:*",
     "@boringos/connector": "workspace:*",
+    "@boringos/connector-slack": "workspace:*",
     "@boringos/control-plane": "workspace:*",
     "@boringos/db": "workspace:*",
     "@boringos/drive": "workspace:*",

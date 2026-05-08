@@ -17,6 +17,7 @@ describe("v2 — built-in modules", () => {
       createDriveModule,
       createWorkflowModule,
       createInboxModule,
+      createSlackModule,
     } = await import("@boringos/core");
     const { signCallbackToken } = await import("@boringos/agent");
     const { mkdtemp } = await import("node:fs/promises");
@@ -36,6 +37,7 @@ describe("v2 — built-in modules", () => {
     app.module(createDriveModule);
     app.module(createWorkflowModule);
     app.module(createInboxModule);
+    app.module(createSlackModule);
 
     const server = await app.listen(0);
     try {
@@ -107,6 +109,19 @@ describe("v2 — built-in modules", () => {
       const inListBody = await inList.json() as { ok: boolean; result: { items: unknown[] } };
       expect(inListBody.ok).toBe(true);
       expect(Array.isArray(inListBody.result.items)).toBe(true);
+
+      // slack.send_message without connector creds: graceful 200
+      // ok=false with permission_denied (cleanest signal that the
+      // tool is wired but the tenant hasn't connected slack).
+      const slackOut = await fetch(`${server.url}/api/tools/slack.send_message`, {
+        method: "POST",
+        headers: auth,
+        body: JSON.stringify({ channel: "#general", text: "hi" }),
+      });
+      expect(slackOut.status).toBe(200);
+      const slackBody = await slackOut.json() as { ok: boolean; error?: { code: string } };
+      expect(slackBody.ok).toBe(false);
+      expect(slackBody.error?.code).toBe("permission_denied");
 
       // memory.remember when no provider configured: graceful error.
       const memOut = await fetch(`${server.url}/api/tools/memory.remember`, {

@@ -223,6 +223,9 @@ importers:
       '@boringos/connector':
         specifier: workspace:*
         version: link:../connector
+      '@boringos/connector-slack':
+        specifier: workspace:*
+        version: link:../connector-slack
       '@boringos/control-plane':
         specifier: workspace:*
         version: link:../control-plane

@@ -293,29 +293,74 @@ async function runWorkflowDag(
 }
 
 /**
- * Resolve `{{nodeId.field}}` templates in the input object. Only
- * top-level string values are substituted; nested objects /
- * arrays are walked recursively. Numeric/boolean values pass
- * through. Phase 7 — minimal viable substitution.
+ * Resolve `{{nodeId.field}}` templates in the input object.
+ *
+ * Two cases:
+ *   - **Whole-string template** (`"{{nodeId.field}}"` is the
+ *     entire value): the resolved value is returned as-is,
+ *     preserving its type (number, object, array, etc.). This
+ *     lets you pass an upstream array directly into a downstream
+ *     `items` field.
+ *   - **Interpolation** (`"prefix {{a.b}} suffix"` mixed with
+ *     literal text): each `{{...}}` match is replaced with the
+ *     resolved value coerced to string. Useful for templated
+ *     titles / descriptions / messages.
+ *
+ * Walks objects and arrays recursively. Path segments support
+ * letters, digits, underscore, dash, and dot. Numeric path
+ * segments index into arrays (`fetch.messages.0.subject`).
+ *
+ * Unresolved paths leave the placeholder untouched so the
+ * downstream tool sees the failure (instead of silently passing
+ * `undefined`).
  */
 function resolveTemplates(
   inputs: unknown,
   outputs: Record<string, unknown>,
 ): Record<string, unknown> {
+  const PLACEHOLDER = /\{\{([a-zA-Z0-9_.-]+)\}\}/g;
+
+  const lookup = (path: string): { found: boolean; value: unknown } => {
+    const segs = path.split(".");
+    let cursor: unknown = outputs;
+    for (const seg of segs) {
+      if (cursor === null || cursor === undefined) return { found: false, value: undefined };
+      if (Array.isArray(cursor)) {
+        const idx = Number(seg);
+        if (!Number.isInteger(idx)) return { found: false, value: undefined };
+        cursor = cursor[idx];
+      } else if (typeof cursor === "object") {
+        cursor = (cursor as Record<string, unknown>)[seg];
+      } else {
+        return { found: false, value: undefined };
+      }
+    }
+    return { found: true, value: cursor };
+  };
+
   const visit = (value: unknown): unknown => {
     if (typeof value === "string") {
-      const match = /^\{\{([a-zA-Z0-9_.-]+)\}\}$/.exec(value);
-      if (match) {
-        const path = match[1].split(".");
-        let cursor: unknown = outputs;
-        for (const seg of path) {
-          if (cursor && typeof cursor === "object" && seg in (cursor as object)) {
-            cursor = (cursor as Record<string, unknown>)[seg];
-          } else {
-            return value;
+      // Whole-string template: preserve resolved type.
+      const wholeMatch = /^\{\{([a-zA-Z0-9_.-]+)\}\}$/.exec(value);
+      if (wholeMatch) {
+        const r = lookup(wholeMatch[1]);
+        return r.found ? r.value : value;
+      }
+      // Interpolation: stringify each placeholder.
+      if (PLACEHOLDER.test(value)) {
+        return value.replace(PLACEHOLDER, (raw, path: string) => {
+          const r = lookup(path);
+          if (!r.found) return raw;
+          if (r.value === null || r.value === undefined) return "";
+          if (typeof r.value === "string") return r.value;
+          if (typeof r.value === "number" || typeof r.value === "boolean")
+            return String(r.value);
+          try {
+            return JSON.stringify(r.value);
+          } catch {
+            return String(r.value);
           }
-        }
-        return cursor;
+        });
       }
       return value;
     }

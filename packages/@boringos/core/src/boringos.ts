@@ -301,13 +301,25 @@ export class BoringOS {
       skills: v2SkillRegistry,
     });
     // ModuleFactory functions are resolved here, after the DB +
-    // (eventually) the agent engine are available. The factory
-    // pattern lets built-ins close over framework services
-    // without leaking those types into the SDK's Module shape.
+    // drive are available (memory provider, agent + workflow
+    // engines are wired in by reference later — built-ins that
+    // need them close over the deps object). The factory pattern
+    // lets built-ins access framework services without leaking
+    // those types into the SDK's Module shape.
+    const v2FactoryDeps = {
+      db: dbConn.db,
+      memory: this.memoryProvider,
+      drive,
+      // engine + workflowEngine are populated later in this
+      // method; built-ins that need them read from the deps
+      // object at call time, not at factory time.
+      engine: undefined as unknown,
+      workflowEngine: undefined as unknown,
+    };
     const v2BoundModules: Module[] = [];
     for (const entry of this.v2Modules) {
       const mod = typeof entry === "function"
-        ? entry({ db: dbConn.db })
+        ? entry(v2FactoryDeps)
         : entry;
       v2ModuleRegistry.register(mod);
       v2BoundModules.push(mod);

@@ -373,6 +373,14 @@ export interface ModuleContext {
  */
 export interface ModuleFactoryDeps {
   db: unknown;
+  /** The configured MemoryProvider (cast to your concrete type). */
+  memory?: unknown;
+  /** The configured StorageBackend. */
+  drive?: unknown;
+  /** The agent engine instance. */
+  engine?: unknown;
+  /** The workflow engine instance. */
+  workflowEngine?: unknown;
 }
 
 export type ModuleFactory = (deps: ModuleFactoryDeps) => Module;

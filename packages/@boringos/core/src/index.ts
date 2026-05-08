@@ -19,6 +19,8 @@ export { BoringOS } from "./boringos.js";
 // v2 (Skills + Tools + Modules) — built-in module factories.
 // Hosts opt into v2 by registering them: `app.module(createFrameworkModule)`.
 export { createFrameworkModule } from "./v2-modules/framework.js";
+export { createMemoryModule } from "./v2-modules/memory.js";
+export { createDriveModule } from "./v2-modules/drive.js";
 
 // Re-export key types from sub-packages for convenience
 export type { MemoryProvider } from "@boringos/memory";

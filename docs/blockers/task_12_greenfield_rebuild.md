@@ -835,6 +835,118 @@ types via the table above.)
 
 ---
 
+## 13c. Wakeups — same mechanism, one code path
+
+Killing `agent_wakeup_requests` does **not** kill wakeups. It
+removes a redundant store. Today there are two sources of truth
+for pending wakes (the table + the queue); v2 keeps only the
+queue.
+
+### 13c.1 What stays
+
+- The job queue (in-process default, BullMQ opt-in)
+- Coalescing: don't spawn a second run when one is already in
+  flight for this agent
+- Auto-rewake-after-run discipline: when a run finishes
+  successfully and the agent still has other `todo` tasks, wake
+  it on the next one (with A.2's same-task guard to prevent
+  loops)
+- Run-recovery on restart: sweep `agent_runs` rows stuck in
+  `running` after process death and mark them `failed`
+- Audit: who woke this agent and why
+
+### 13c.2 What's deleted
+
+- `agent_wakeup_requests` table
+- The wake-half of `engine.recoverPending()` (the run-recovery
+  half stays)
+- The standalone `engine.wake()` API as the *primary* surface
+  (it survives as an internal helper called by the wake tool)
+
+### 13c.3 What replaces it
+
+**One tool: `framework.agents.wake(agentId, taskId, reason)`.**
+
+Every wake — no exceptions — flows through this tool. The
+handler:
+
+1. Checks if a run for this agent is already in flight
+   (`agent_runs` where `status = 'running'`).
+2. If a run is in flight, sets
+   `agents.pending_wake = true` + `agents.pending_wake_task_id`
+   and returns `{ ok: true, result: { coalesced: true } }`.
+3. Otherwise, enqueues a job on the queue and returns
+   `{ ok: true, result: { runId, coalesced: false } }`.
+4. Always writes a `tool_calls` row capturing the call
+   (regardless of outcome — that's the audit trail).
+
+When a run completes successfully, the `afterRun` hook checks
+`agents.pending_wake`. If set, it calls
+`framework.agents.wake` again (preserving A.2's same-task guard:
+the new wake skips the just-finished task).
+
+### 13c.4 The eight wake call sites all funnel here
+
+| Wake source | Caller in v2 |
+|---|---|
+| Comment posted on task with agent assignee | Comment handler invokes the tool in-process |
+| Task assigned to agent | Assignment handler invokes the tool |
+| Routine fires (cron) | Scheduler invokes the tool (or invokes `workflow.run` if the routine targets a workflow) |
+| Webhook matches a trigger | Webhook handler invokes `workflow.run`, which can call the wake tool as one of its DAG blocks |
+| Approval decided on `agent_action` child task | Decision handler posts comment → comment handler wakes parent agent |
+| Run completed with remaining `todo` tasks | `afterRun` hook invokes the tool (with same-task guard) |
+| Tenant resumed from pause | Pause-toggle handler walks agents with `todo` tasks and invokes the tool for each |
+| Admin UI "Wake now" | `/api/admin/agents/:id/wake` invokes the tool internally |
+| Workflow DAG "wake an agent" block | Tool block in the DAG referencing `framework.agents.wake` |
+
+One tool. One audit trail. One coalescing rule. One same-task
+guard.
+
+### 13c.5 Coalescing state
+
+Two new columns on `agents` replace the `agent_wakeup_requests`
+table for coalescing purposes:
+
+| Column | Purpose |
+|---|---|
+| `pending_wake` (boolean) | Set when a wake arrives during an in-flight run |
+| `pending_wake_task_id` (uuid) | Which task the pending wake should target |
+| `pending_wake_reason` (text) | Free-form reason carried into the next run |
+
+Cleared when the next run starts. Survives process restart (it's
+a DB row, unlike the in-process queue). This is the persistent
+piece that justified the wakeup table; it shrinks to three
+columns.
+
+### 13c.6 Recovery on restart
+
+Two halves:
+
+1. **Run recovery** (kept). `engine.recoverPending()` sweeps
+   `agent_runs` rows stuck in `running` (their process died
+   mid-run) and marks them `failed`. Then walks `agents` for any
+   with `pending_wake = true` and re-issues the wake tool. Same
+   spirit as today.
+2. **Queue recovery** (changed):
+   - In-process queue: nothing to recover. Pending jobs were in
+     memory; they're gone. The next external trigger re-wakes.
+     This is no different from v1's actual behavior — the
+     in-process queue was never persistent.
+   - BullMQ: Redis recovers automatically.
+
+### 13c.7 Audit query
+
+"Why was agent X woken at 3:14am?" answers in two queries:
+
+1. `SELECT * FROM tool_calls WHERE tool_name = 'framework.agents.wake' AND inputs->>'agentId' = X AND started_at >= '03:14'` — finds the wake call (caller, reason, source task).
+2. `SELECT * FROM agent_runs WHERE agent_id = X AND started_at >= '03:14'` — finds the resulting run (or absence; coalesced wakes have no run).
+
+Both queryable from the admin UI's tool-call audit screen and
+the runs screen. No separate "wakeups" UI needed; wakes are just
+tool calls.
+
+---
+
 ## 14. Built-in modules to ship in v2
 
 The minimum viable v2 has these built-ins. Each is its own

@@ -144,6 +144,27 @@ export interface BoringOSClient {
   // Approvals — collapsed into tasks (see decideTask above; tasks
   // with origin_kind="agent_action" carry the decision affordance).
 
+  // Routines
+  getRoutines(): Promise<Record<string, unknown>[]>;
+  createRoutine(data: Record<string, unknown>): Promise<Record<string, unknown>>;
+  updateRoutine(routineId: string, data: Record<string, unknown>): Promise<Record<string, unknown>>;
+  deleteRoutine(routineId: string): Promise<void>;
+  triggerRoutine(routineId: string): Promise<Record<string, unknown>>;
+
+  // Workflows
+  getWorkflows(): Promise<Record<string, unknown>[]>;
+  getWorkflow(workflowId: string): Promise<Record<string, unknown>>;
+  createWorkflow(data: Record<string, unknown>): Promise<Record<string, unknown>>;
+  updateWorkflow(workflowId: string, data: Record<string, unknown>): Promise<Record<string, unknown>>;
+  deleteWorkflow(workflowId: string): Promise<void>;
+  getWorkflowRuns(workflowId: string): Promise<Record<string, unknown>[]>;
+
+  // Budgets
+  getBudgets(): Promise<Record<string, unknown>[]>;
+  createBudget(data: Record<string, unknown>): Promise<Record<string, unknown>>;
+  deleteBudget(budgetId: string): Promise<void>;
+  getBudgetIncidents(): Promise<Record<string, unknown>[]>;
+
   // Cost
   getCosts(): Promise<Record<string, unknown>[]>;
   reportCost(runId: string, data: { inputTokens: number; outputTokens: number; model?: string; costUsd?: number }): Promise<void>;
@@ -182,17 +203,10 @@ export function createBoringOSClient(config: BoringOSClientConfig): BoringOSClie
     return h;
   }
 
-  // Use admin API for human callers (apiKey OR session bearer token);
-  // callback API for agent-spawned subprocesses bearing a signed JWT.
-  // Auth shape distinguishes them: agent JWTs are 3-segment dotted
-  // base64url; session tokens are plain UUIDs / opaque strings.
-  function isAgentJwt(t: string): boolean {
-    return /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(t);
-  }
-  const isHumanCaller =
-    Boolean(config.apiKey) ||
-    (Boolean(config.token) && !isAgentJwt(config.token!));
-  const api = isHumanCaller ? "/api/admin" : "/api/agent";
+  // The shell + admin clients only ever talk to /api/admin.
+  // Agent-side callers use /api/tools/* directly (the v2 tool
+  // dispatch surface) and do not go through this client.
+  const api = "/api/admin";
 
   async function get<T>(path: string): Promise<T> {
     const res = await fetch(`${baseUrl}${path}`, { headers: headers() });
@@ -308,25 +322,71 @@ export function createBoringOSClient(config: BoringOSClientConfig): BoringOSClie
       return res.models;
     },
 
+    // Routines
+    getRoutines: async () => {
+      const res = await get<{ routines: Record<string, unknown>[] }>(`${api}/routines`);
+      return res.routines;
+    },
+    createRoutine: (data) => post<Record<string, unknown>>(`${api}/routines`, data),
+    updateRoutine: (routineId, data) => patch<Record<string, unknown>>(`${api}/routines/${routineId}`, data),
+    deleteRoutine: (routineId) => del(`${api}/routines/${routineId}`),
+    triggerRoutine: (routineId) => post<Record<string, unknown>>(`${api}/routines/${routineId}/trigger`, {}),
+
+    // Workflows
+    getWorkflows: async () => {
+      const res = await get<{ workflows: Record<string, unknown>[] }>(`${api}/workflows`);
+      return res.workflows;
+    },
+    getWorkflow: (workflowId) => get<Record<string, unknown>>(`${api}/workflows/${workflowId}`),
+    createWorkflow: (data) => post<Record<string, unknown>>(`${api}/workflows`, data),
+    updateWorkflow: (workflowId, data) => patch<Record<string, unknown>>(`${api}/workflows/${workflowId}`, data),
+    deleteWorkflow: (workflowId) => del(`${api}/workflows/${workflowId}`),
+    getWorkflowRuns: async (workflowId) => {
+      const res = await get<{ runs: Record<string, unknown>[] }>(`${api}/workflows/${workflowId}/runs`);
+      return res.runs;
+    },
+
+    // Budgets
+    getBudgets: async () => {
+      const res = await get<{ policies: Record<string, unknown>[] }>(`${api}/budgets`);
+      return res.policies;
+    },
+    createBudget: (data) => post<Record<string, unknown>>(`${api}/budgets`, data),
+    deleteBudget: (budgetId) => del(`${api}/budgets/${budgetId}`),
+    getBudgetIncidents: async () => {
+      const res = await get<{ incidents: Record<string, unknown>[] }>(`${api}/budgets/incidents`);
+      return res.incidents;
+    },
+
     // Costs
     getCosts: async () => {
       const res = await get<{ costs: Record<string, unknown>[] }>(`${api}/costs`);
       return res.costs;
     },
     reportCost: async (runId, data) => {
-      await post(`/api/agent/runs/${runId}/cost`, data);
+      // v2: cost reporting goes through the framework module's
+      // tool, called from inside agent runs only.
+      await post(`/api/tools/framework.runs.report_cost`, { runId, ...data });
     },
 
-    // Connectors
+    // Connectors — OAuth + listing only. Action invocation has
+    // moved to /api/tools/<connector>.<action>.
     getConnectors: async () => {
       const res = await get<{ connectors: ConnectorInfo[] }>("/api/connectors/connectors");
       return res.connectors;
     },
-    invokeAction: (kind, action, inputs) =>
-      post<{ success: boolean; data?: Record<string, unknown>; error?: string }>(
-        `/api/connectors/actions/${kind}/${action}`,
-        inputs,
-      ),
+    invokeAction: async (kind, action, inputs) => {
+      const r = await post<{
+        ok: boolean;
+        result?: Record<string, unknown>;
+        error?: { code: string; message: string };
+      }>(`/api/tools/${kind}.${action}`, inputs);
+      // Translate v2 response shape to the legacy v1 shape so
+      // existing consumers don't need to change.
+      return r.ok
+        ? { success: true, data: r.result }
+        : { success: false, error: r.error?.message };
+    },
 
     // Inbox
     getInbox: async (filters) => {

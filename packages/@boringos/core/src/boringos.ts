@@ -58,7 +58,7 @@ import type {
   LifecycleHook,
   StartedServer,
 } from "./types.js";
-import { createCallbackRoutes } from "./routes.js";
+// v1 callback routes deleted — agents now call /api/tools/*
 import { createV2Routes } from "./v2-routes.js";
 import { createV2AdminRoutes } from "./v2-admin-routes.js";
 import {
@@ -87,7 +87,8 @@ import { createDeviceAuthRoutes } from "./device-auth-routes.js";
 import { createRoutineScheduler } from "./scheduler.js";
 import { createInboxSnoozeTicker } from "./inbox-snooze-ticker.js";
 import { createInboxGmailReverseSyncTicker } from "./inbox-gmail-reverse-sync.js";
-import { createCopilotRoutes } from "./copilot-routes.js";
+// v1 copilot routes deleted — copilot is a v2 module, conversations
+// go through /api/admin/tasks/* with originKind="copilot"
 import { createPluginRegistry } from "./plugin-system.js";
 import type { PluginDefinition } from "./plugin-system.js";
 import { createPluginWebhookRoutes, createPluginAdminRoutes } from "./plugin-routes.js";
@@ -358,22 +359,6 @@ export class BoringOS {
     const jwtSecret = this.config.auth?.secret ?? "boringos-dev-secret";
     const callbackUrl = `http://localhost:${listenPort}`;
 
-    // Resolve apiCatalog lazily so routes registered in `beforeStart` hooks
-    // (which run after engine creation) are still picked up. Walks BOTH
-    // sources: statically-mounted host routes (`app.route(...)`) and
-    // routes registered via the install pipeline (default apps,
-    // user-installed apps). Without the install-pipeline source, an
-    // app like the CRM that ships agentDocs would never reach the
-    // agent's prompt — see task_07.
-    let installedAppRouteRegistry: AppRouteRegistry | undefined;
-    const apiCatalog = () => {
-      const fromExtras = this.extraRoutes
-        .filter((r) => r.agentDocs)
-        .map((r) => ({ path: r.path, agentDocs: r.agentDocs! }));
-      const fromInstalled = installedAppRouteRegistry?.getCatalog() ?? [];
-      return [...fromExtras, ...fromInstalled];
-    };
-
     // If the app didn't register a queue adapter, spin up the default
     // in-process one here so we can honor `config.queue.concurrency`. The
     // engine's own fallback doesn't know about app config.
@@ -381,12 +366,10 @@ export class BoringOS {
       this.queueAdapter ??
       createInProcessQueue<AgentRunJob>({ concurrency: this.config.queue?.concurrency });
 
-    // Connector registry is created here (early) so the agent engine
-    // can pass it into the connector-actions catalog provider. The
-    // actual `register()` calls and actionRunner construction happen
-    // later (alongside event-bus setup) — but the registry reference
-    // is stable, so by the time an agent wakes the registry is fully
-    // populated and the provider's `list()` returns everything.
+    // Connector registry: kept for OAuth + webhook dispatch
+    // (v2 modules wrap connector clients). The agent prompt
+    // surfaces tools through the v2 tool-catalog provider, not
+    // through this registry.
     const connectorRegistry = createConnectorRegistry();
 
     const agentEngine = createAgentEngine({
@@ -398,9 +381,7 @@ export class BoringOS {
       callbackUrl,
       jwtSecret,
       queue: resolvedQueue,
-      apiCatalog,
       connectorRegistry,
-      v2Only: this.config.v2Only === true,
     });
 
     // Now that the agent engine exists, populate the deps holder
@@ -610,9 +591,6 @@ export class BoringOS {
     // installs) and the tenantProvisionedHook (auto-install of default
     // apps on signup).
     const appRouteRegistry: AppRouteRegistry = createAppRouteRegistry();
-    // Now that the registry exists, point the lazy apiCatalog getter
-    // at it so installed apps' agentDocs reach the agent prompt.
-    installedAppRouteRegistry = appRouteRegistry;
     // Note: appRouteRegistry.attachTo(app) is called AT THE END of route
     // mounting, so the per-app dispatcher catches /api/{appId}/* AFTER
     // all framework /api/* routes have been registered (otherwise the
@@ -767,23 +745,15 @@ export class BoringOS {
     const deviceAuthApp = createDeviceAuthRoutes(dbConn.db);
     app.route("/api/auth/device", deviceAuthApp);
 
-    // v2-only mode: when on, v1 HTTP surfaces are NOT mounted.
     // The host MUST register at least one v2 module (typically
     // createFrameworkModule) for the agent surface to exist —
-    // otherwise /api/tools/* serves only 404s.
-    const v2Only = this.config.v2Only === true;
-    if (v2Only && !v2HasModules) {
+    // without modules, /api/tools/* serves only 404s.
+    if (!v2HasModules) {
       console.warn(
-        "[boringos] config.v2Only=true but no v2 modules are registered. " +
+        "[boringos] no v2 modules are registered. " +
           "Agents will have no callable surface. Register createFrameworkModule + " +
           "any other modules you need via app.module(...).",
       );
-    }
-
-    // Agent callback API (v1 — gated by v2-only flag)
-    if (!v2Only) {
-      const callbackApp = createCallbackRoutes(dbConn.db, agentEngine, jwtSecret);
-      app.route("/api/agent", callbackApp);
     }
 
     // v2 — mount the unified dispatch endpoint + admin views when
@@ -1006,14 +976,10 @@ export class BoringOS {
       app.route(path, routeApp);
     }
 
-    // 10b. Copilot routes — multi-tenant (resolves tenant from
-    // session). Gated by v2-only: when on, the browser shell must
-    // talk to /api/admin/tasks/* (creating tasks with originKind=
-    // "copilot") and use the copilot.start_session tool instead.
-    if (!v2Only) {
-      const copilotApp = createCopilotRoutes(dbConn.db, agentEngine);
-      app.route("/api/copilot", copilotApp);
-    }
+    // 10b. Copilot — v2 only. Browser shell talks to
+    // /api/admin/tasks/* (creating tasks with originKind=
+    // "copilot") and uses the copilot.start_session tool. The
+    // per-tenant copilot agent provisioning still happens here.
     {
 
       // Auto-create Chief of Staff and Copilot for existing first tenant (backward compat)

@@ -25,19 +25,12 @@ export {
   headerProvider,
   personaProvider,
   createTenantGuidelinesProvider,
-  createDriveSkillProvider,
-  memorySkillProvider,
   agentInstructionsProvider,
-  protocolProvider,
-  approvalsSkillProvider,
   sessionProvider,
   createTaskProvider,
   createCommentsProvider,
   memoryContextProvider,
-  createApiCatalogProvider,
-  chiefOfStaffProvider,
 } from "./providers/index.js";
-export type { ApiCatalogEntry, AgentDocs } from "./providers/index.js";
 
 export { signCallbackToken, verifyCallbackToken } from "./jwt.js";
 export type { CallbackTokenClaims } from "./jwt.js";
@@ -59,10 +52,7 @@ export type { DelegateQuery } from "./hierarchy.js";
 
 export { createHierarchyProvider } from "./providers/hierarchy.js";
 
-// v2 (Skills + Tools + Modules) — additive scaffolding. See
-// docs/blockers/task_12_greenfield_rebuild.md. v1 surface above
-// is unchanged; v2 lives alongside until the phased migration
-// retires the v1 providers / connector registry / curl block.
+// v2 (Skills + Tools + Modules) — the only mode now.
 export {
   createToolRegistry,
   createSkillRegistry,

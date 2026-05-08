@@ -12,12 +12,18 @@ importers:
 
   .:
     devDependencies:
+      '@boringos/agent':
+        specifier: workspace:*
+        version: link:packages/@boringos/agent
       '@boringos/connector-google':
         specifier: workspace:*
         version: link:packages/@boringos/connector-google
       '@boringos/core':
         specifier: workspace:*
         version: link:packages/@boringos/core
+      '@boringos/db':
+        specifier: workspace:*
+        version: link:packages/@boringos/db
       '@boringos/module-sdk':
         specifier: workspace:*
         version: link:packages/@boringos/module-sdk

@@ -27,21 +27,13 @@ import { createRunLifecycle } from "./run-lifecycle.js";
 import {
   headerProvider,
   personaProvider,
-  memorySkillProvider,
   agentInstructionsProvider,
-  protocolProvider,
-  approvalsSkillProvider,
-  createConnectorActionsCatalogProvider,
   sessionProvider,
   memoryContextProvider,
   createTenantGuidelinesProvider,
-  createDriveSkillProvider,
   createTaskProvider,
   createCommentsProvider,
   createHierarchyProvider,
-  createApiCatalogProvider,
-  type ApiCatalogEntry,
-  chiefOfStaffProvider,
 } from "./providers/index.js";
 
 export interface AgentEngineConfig {
@@ -54,71 +46,25 @@ export interface AgentEngineConfig {
   jwtSecret: string;
   queue?: QueueAdapter<AgentRunJob>;
   /**
-   * App-registered HTTP mounts with agent-facing docs. Accepts a getter so
-   * the catalog can be resolved at prompt-build time — important when apps
-   * register routes in `beforeStart` hooks that run after engine creation.
-   * A built-in context provider emits these into every agent's system prompt.
-   */
-  apiCatalog?: ApiCatalogEntry[] | (() => ApiCatalogEntry[]);
-  /**
-   * Connector registry — used by the connector-actions catalog
-   * provider to advertise every callable connector action in the
-   * agent's system prompt. Without this set, agents don't know
-   * what tools they have, and refuse-to-act / can't-act behaviors
-   * compound.
+   * Connector registry. Kept on the config for backward compat
+   * with hosts that still pass it; the engine no longer reads it
+   * for the prompt (v2 connector modules surface their tools via
+   * the tool registry). Internal callers may still use it for
+   * OAuth + webhook dispatch.
    */
   connectorRegistry?: ConnectorRegistry;
-  /**
-   * v2-only mode — when true, the v1 prompt providers (memory-
-   * skill, drive-skill, approvals-skill, chief-of-staff, protocol's
-   * curl block, api-catalog, connector-actions-catalog) are NOT
-   * registered. The agent's prompt comes from v2 SKILL providers +
-   * tool catalog instead.
-   *
-   * Per-run / per-agent providers (header, persona, hierarchy,
-   * tenant-guidelines, agent-instructions, session, task, comments,
-   * memory-context) remain registered — they're not v1-specific.
-   */
-  v2Only?: boolean;
 }
 
 function registerDefaultProviders(pipeline: ContextPipeline, config: AgentEngineConfig): void {
-  const v2Only = config.v2Only === true;
-
-  // System instruction providers — these stay in both modes
-  // because they inject per-agent / per-run state (org tree,
-  // role, tenant-level config) that v2 modules don't replicate.
+  // Per-agent / per-run state providers. Module SKILL.md files
+  // and the v2 tool catalog (added separately by core/boringos.ts)
+  // cover the rest of the prompt surface.
   pipeline.add(headerProvider);
   pipeline.add(createHierarchyProvider({ db: config.db }));
   pipeline.add(personaProvider);
   pipeline.add(createTenantGuidelinesProvider({ db: config.db }));
   pipeline.add(agentInstructionsProvider);
 
-  // v1 prompt providers — gated by v2-only flag. In v2-only
-  // mode, the framework module's SKILL.md files (tool-protocol,
-  // approvals, when-stuck) cover this surface and the v2
-  // tool-catalog provider lists callables.
-  if (!v2Only) {
-    pipeline.add(chiefOfStaffProvider);
-    pipeline.add(createDriveSkillProvider({ drive: config.drive }));
-    pipeline.add(memorySkillProvider);
-    pipeline.add(protocolProvider);
-    pipeline.add(approvalsSkillProvider);
-    if (config.connectorRegistry) {
-      pipeline.add(
-        createConnectorActionsCatalogProvider({
-          registry: config.connectorRegistry,
-          db: config.db,
-        }),
-      );
-    }
-    if (config.apiCatalog) {
-      pipeline.add(createApiCatalogProvider(config.apiCatalog));
-    }
-  }
-
-  // Context markdown providers — per-run state, always
-  // registered regardless of mode.
   pipeline.add(sessionProvider);
   pipeline.add(createTaskProvider({ db: config.db }));
   pipeline.add(createCommentsProvider({ db: config.db }));

@@ -31,26 +31,7 @@ export interface BoringOSConfig {
    * still runs after if registered.
    */
   defaultAppsDir?: string;
-  /**
-   * v2-only mode. When `true`:
-   *   - v1 context providers (memory-skill, drive-skill, approvals-skill,
-   *     api-catalog, connector-actions-catalog, chief-of-staff,
-   *     protocol's curl block) are NOT registered. The agent's prompt
-   *     comes entirely from v2 SKILL providers + tool catalog.
-   *   - v1 HTTP routes (`/api/agent/*`, `/api/connectors/actions/*`,
-   *     `/api/copilot/*`) are NOT mounted. Only `/api/tools/*` is
-   *     available as the agent surface.
-   *   - The host MUST register at least one v2 module (typically
-   *     `createFrameworkModule`) — without it, agents have nothing
-   *     to call.
-   *
-   * When `false` (default): full v1 + v2 surface, parity preserved.
-   *
-   * This flag is the safe-cutover mechanism. Flip it to verify v2
-   * covers every v1 capability your deployment uses before any v1
-   * code is deleted.
-   */
-  v2Only?: boolean;
+  // v1 has been removed. v2 is the only mode.
 }
 
 export interface QueueConfig {

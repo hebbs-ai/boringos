@@ -55,7 +55,6 @@ describe("v2 parity — every v1 capability has a working v2 equivalent", () => 
       database: { embedded: true, dataDir, port: 5572 },
       drive: { root: join(dataDir, "drive") },
       auth: { secret: jwtSecret },
-      v2Only: true,
     });
 
     // Register every built-in module. This is the canonical

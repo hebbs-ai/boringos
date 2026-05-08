@@ -566,8 +566,25 @@ export class BoringOS {
     // 11. Build Hono app
     const app = new Hono();
 
-    // Health endpoint
-    app.get("/health", (c) => c.json({ status: "ok", timestamp: new Date().toISOString() }));
+    // Health endpoint — also surfaces v2 module count so a quick
+    // curl tells you whether v2 is wired up for this deployment.
+    app.get("/health", (c) =>
+      c.json({
+        status: "ok",
+        timestamp: new Date().toISOString(),
+        v2: {
+          modules: v2BoundModules.map((m) => ({
+            id: m.id,
+            name: m.name,
+            version: m.version,
+            tools: m.tools?.length ?? 0,
+            skills: m.skills?.length ?? 0,
+          })),
+          totalTools: v2ToolRegistry.list().length,
+          totalSkills: v2SkillRegistry.list().length,
+        },
+      }),
+    );
 
     // Phase 2 K7/K8/K9 wiring — kernel install context + default-app
     // catalog. Built once at boot and shared by /api/admin/apps (manual

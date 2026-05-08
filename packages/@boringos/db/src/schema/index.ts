@@ -27,3 +27,9 @@ export { tenantAppLinks } from "./tenant-app-links.js";
 
 // v2 (Skills + Tools + Modules). Additive — coexists with v1.
 export { toolCalls } from "./tool-calls.js";
+export {
+  hebbsCrmPipelines,
+  hebbsCrmContacts,
+  hebbsCrmDeals,
+  hebbsCrmActivities,
+} from "./v2-crm.js";

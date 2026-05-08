@@ -662,5 +662,76 @@ async function ensureSchema(db: Db): Promise<void> {
       ON tool_calls(tenant_id, started_at);
     CREATE INDEX IF NOT EXISTS tool_calls_run_idx
       ON tool_calls(run_id);
+
+    -- v2 CRM module schema. Tables prefixed hebbs_crm__ per the
+    -- v2 naming convention. Phase 8 of task_12. Additive: v1 CRM
+    -- in the separate repo (with crm_* tables) is unaffected.
+    CREATE TABLE IF NOT EXISTS hebbs_crm__pipelines (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      stages JSONB NOT NULL DEFAULT '[]'::jsonb,
+      is_default TEXT NOT NULL DEFAULT 'false',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS hebbs_crm__pipelines_tenant_idx
+      ON hebbs_crm__pipelines(tenant_id);
+
+    CREATE TABLE IF NOT EXISTS hebbs_crm__contacts (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      email TEXT,
+      phone TEXT,
+      company TEXT,
+      title TEXT,
+      notes TEXT,
+      custom_fields JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS hebbs_crm__contacts_tenant_idx
+      ON hebbs_crm__contacts(tenant_id);
+    CREATE INDEX IF NOT EXISTS hebbs_crm__contacts_email_idx
+      ON hebbs_crm__contacts(tenant_id, email);
+
+    CREATE TABLE IF NOT EXISTS hebbs_crm__deals (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      amount_cents INTEGER NOT NULL DEFAULT 0,
+      currency TEXT NOT NULL DEFAULT 'USD',
+      pipeline_id UUID NOT NULL,
+      stage_id TEXT NOT NULL,
+      contact_id UUID,
+      expected_close_date TIMESTAMPTZ,
+      notes TEXT,
+      custom_fields JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS hebbs_crm__deals_tenant_idx
+      ON hebbs_crm__deals(tenant_id);
+    CREATE INDEX IF NOT EXISTS hebbs_crm__deals_pipeline_idx
+      ON hebbs_crm__deals(tenant_id, pipeline_id);
+    CREATE INDEX IF NOT EXISTS hebbs_crm__deals_stage_idx
+      ON hebbs_crm__deals(tenant_id, stage_id);
+    CREATE INDEX IF NOT EXISTS hebbs_crm__deals_contact_idx
+      ON hebbs_crm__deals(contact_id);
+
+    CREATE TABLE IF NOT EXISTS hebbs_crm__activities (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      entity_kind TEXT NOT NULL,
+      entity_id UUID NOT NULL,
+      action TEXT NOT NULL,
+      payload JSONB,
+      actor_agent_id UUID,
+      actor_user_id UUID,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS hebbs_crm__activities_tenant_entity_idx
+      ON hebbs_crm__activities(tenant_id, entity_kind, entity_id);
   `);
 }

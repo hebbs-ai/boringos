@@ -29,6 +29,87 @@ code.
    framework with zero core edits.** The test of correctness:
    adding Notion is a Module package; the framework doesn't
    change.
+6. **Feature parity at cutover.** Every capability that works in
+   v1 must work in v2 — possibly relocated (e.g. into a Module),
+   possibly re-skinned (e.g. through a different URL), but not
+   regressed. Greenfield wipes *data*; it does not drop
+   *features*. See §1b for the canonical parity matrix.
+
+---
+
+## 1b. Parity matrix — every v1 feature has a v2 home
+
+This table is the contract behind goal #6. Every row is a v1
+feature; every row maps to where it lives in v2. **No row may be
+"dropped" without an explicit replacement** — and the only
+acceptable replacements are listed here.
+
+| v1 feature | Lives in v2 as | Notes |
+|---|---|---|
+| Agent execution pipeline (12 providers) | Same engine + 7 providers (5 per-run-context + skills + tool-catalog) | Provider count drops; behavior preserved |
+| Per-task sessions | Unchanged | `tasks.session_id` invariant kept |
+| JWT-authed agent callbacks | Unchanged (URL changes to `/api/tools/*`) | Same JWT shape and middleware |
+| Pluggable runtimes (Claude Code, Codex, Gemini, Ollama, Command, Webhook) | Unchanged | RuntimeModule interface stays |
+| Workflow engine + DAG | `workflow` Module — `workflow.run` tool, 5 control-flow primitives, every tool is a block | See §13b |
+| Visual workflow editor | Same canvas; palette = control-flow primitives + tool registry | See §13b.4 |
+| 9 built-in BlockHandlers | 5 built-in control-flow nodes + tool blocks for the rest | See §13b.8 migration table |
+| Connector framework + Slack + Google | `connector-slack`, `connector-google` Modules | OAuth, tools, skills all carried over |
+| Plugin system + GitHub plugin | `connector-github` Module (capability + connector hybrid) | Plugin shape collapses into Module |
+| Memory provider (Hebbs + null) | `memory` built-in Module | Tools: `memory.{remember, recall, prime, forget}` |
+| Drive (StorageBackend + DriveManager) | `drive` built-in Module | Tools: `drive.{read, write, list, delete, stat, move}` |
+| Inbox + triage workflow | `inbox` built-in Module + `triage` capability Module | Same DB columns, plus thread-aware (task_09) |
+| Approvals (collapsed-into-tasks model from task_06) | Unchanged — `originKind: "agent_action"` tasks | Default-deny posture taught via framework SKILL.md |
+| Approval decision endpoint | `framework.tasks.decide` tool (admin-callable) | Same comment-snapshot behavior from task_07 |
+| Copilot (per-tenant assistant) | `copilot` built-in Module | See §12; no `/api/copilot/*` |
+| Routine scheduler | Same scheduler; routines target `<module>.<tool>` | Workflow targets become `workflow.run` calls |
+| Budget enforcement (policies + incidents) | Unchanged | Hooked into the tool dispatcher |
+| Notifications (Resend) | `notifications` Module | Tools: `notify.{email, slack}`; templates kept |
+| Execution workspaces (git worktrees) | Unchanged | Provisioned by run lifecycle |
+| Admin skill system (github sync, attach, working-dir symlinks) | `tenant-skills` Module + `module_skill_overrides` table | Same UX, new shape |
+| Agent personas (12 bundles, role aliases) | `personas-default` Module — one SKILL.md per role | Role aliases kept |
+| Agent hierarchy (`reportsTo`, org tree, escalation) | Unchanged | `hierarchy` per-run provider stays |
+| Agent templates + team templates | Same admin endpoints | Templates may move into a `team-templates` Module |
+| Auth API (signup/login/logout/me) | Unchanged | Session-based |
+| Invitations + team management | Unchanged | |
+| Activity log | Unchanged | Plus new `tool_calls` audit |
+| SSE / Realtime (`/api/events`) | Unchanged | New event types added (`tool:invoked`, `module:installed`) |
+| Onboarding wizard | Unchanged | |
+| Device auth (CLI login) | Unchanged | |
+| Evals + eval runs | `evals` Module | Same shape, packaged |
+| Projects + auto-IDs | Unchanged | |
+| Goals | Unchanged | |
+| Labels + read states + attachments | Unchanged | |
+| Checkout locks (`checkout_run_id`) | Unchanged | Prevents concurrent agent work on same task |
+| Custom schema integration (`.schema(ddl)`) | Replaced by `Module.schema` migrations | Same capability, namespaced naming |
+| Entity linking (`entity_references`) | Unchanged | |
+| Event-driven architecture (`app.onEvent`) | Modules subscribe via `Module.events` field | One subscription mechanism |
+| Event-to-inbox routing (`.routeToInbox`) | The `inbox` Module's webhook + event handlers | Declarative config preserved |
+| Cross-entity search | Unchanged | Admin endpoint walks framework + module tables |
+| Auto-post agent results | Unchanged | `afterRun` hook posts result as comment |
+| Agent pause/resume (global + per-agent) | Unchanged | Same tenant_settings + agent.status fields |
+| Auto-rewake-after-run discipline | Unchanged | With A.2's same-task guard preserved |
+| Wakeup mechanism (queue, coalescing, recovery) | Same mechanism, single tool path | See §13c; no separate wakeup table |
+| `@boringos/ui` React hooks | Updated for new endpoints | Hook names and shape preserved where possible |
+| `create-boringos` CLI generator | Updated to scaffold v2 Modules | Templates: `module`, `connector`, `capability` |
+| Cost tracking (token + USD) | Unchanged | |
+| Multi-tenant isolation | Unchanged | Every table tenant-scoped, every tool ctx tenant-scoped |
+| `--dangerously-skip-permissions` for agents | Unchanged | Agents still run with full tool access |
+| Embedded Postgres + Drizzle | Unchanged | |
+| In-process default queue + BullMQ opt-in | Unchanged | |
+| `+ New task` modal (UI feature from BOS-010) | Unchanged | |
+| Per-tenant settings (`tenant_settings`) | Unchanged + new keys for tool rate limits | |
+| Tasks rich UX (intent tabs, two-pane, decision card) | Unchanged | |
+| Inbox rich UX (read/unread/snoozed/archived/superseded) | Unchanged | task_09's `superseded` status preserved |
+| Drive skill revisions | Drops as a vestige; tenant-skill-overrides covers the use case | One row in deletion list (§3) |
+
+### Parity verification
+
+Before cutover, the team runs through every row of this matrix
+on a staging tenant and verifies the v2 implementation matches v1
+behavior. Any row that doesn't pass blocks cutover. The matrix is
+also encoded as an integration test suite in
+`tests/v2-parity.test.ts` — every feature gets at least one
+end-to-end assertion.
 
 ---
 
@@ -1307,8 +1388,13 @@ The rebuild succeeds when:
    from the scheduler — atomically and verifiably.
 5. The CRM, copilot, memory, drive, and connectors are all the
    same shape. Only their `id`, `tools`, and `skills` differ.
+6. **Feature parity.** Every row in §1b's parity matrix has a
+   green-passing test in `tests/v2-parity.test.ts`. No v1
+   capability is missing in v2 — only relocated or re-skinned.
+   This is the contract behind goal #6.
 
-If these five hold, the framework is OS-shaped, and v2 is right.
+If all six hold, the framework is OS-shaped, v1 features are
+preserved, and v2 is right.
 
 ---
 

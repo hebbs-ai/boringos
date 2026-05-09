@@ -536,6 +536,20 @@ export function createAdminRoutes(
       }
     }
 
+    // Auto-resolve copilot tasks to the tenant's copilot agent when
+    // the caller didn't specify one. The shell's "+ New session"
+    // button posts {originKind: "copilot"} with no assignee — without
+    // this, the task lands unassigned and the auto-wake-on-comment
+    // hook has nothing to fire.
+    let resolvedAssigneeAgentId = body.assigneeAgentId as string | undefined;
+    if (!resolvedAssigneeAgentId && body.originKind === "copilot") {
+      const copilotRows = await db.select({ id: agents.id })
+        .from(agents)
+        .where(and(eq(agents.tenantId, tenantId), eq(agents.role, "copilot")))
+        .limit(1);
+      resolvedAssigneeAgentId = copilotRows[0]?.id;
+    }
+
     await db.insert(tasks).values({
       id,
       tenantId,
@@ -543,7 +557,7 @@ export function createAdminRoutes(
       description: body.description as string | undefined,
       status: (body.status as string) ?? "todo",
       priority: (body.priority as string) ?? "medium",
-      assigneeAgentId: body.assigneeAgentId as string | undefined,
+      assigneeAgentId: resolvedAssigneeAgentId,
       // Default assignee = current user, but only when no agent is
       // assigned. Setting both fields creates ambiguity (whose
       // queue does it land in?) and the auto-wake-on-comment hook
@@ -551,7 +565,7 @@ export function createAdminRoutes(
       // to live on the user's todo list.
       assigneeUserId:
         (body.assigneeUserId as string) ??
-        (body.assigneeAgentId ? undefined : c.get("userId") ?? undefined),
+        (resolvedAssigneeAgentId ? undefined : c.get("userId") ?? undefined),
       // Stamp the creating user — needed for the "My todos" /
       // "Watching" filters in the Tasks UI to distinguish "I made
       // this" from "an agent made this." Without it, tasks created
@@ -562,6 +576,7 @@ export function createAdminRoutes(
       identifier,
       originKind: (body.originKind as string) ?? "manual",
       proposedParams: body.proposedParams as Record<string, unknown> | undefined,
+      metadata: body.metadata as Record<string, unknown> | undefined,
     });
     const rows = await db.select().from(tasks).where(eq(tasks.id, id)).limit(1);
     emit("task:created", c.get("tenantId"), { taskId: id, title: body.title });
@@ -579,6 +594,22 @@ export function createAdminRoutes(
     if (body.assigneeAgentId !== undefined) values.assigneeAgentId = body.assigneeAgentId;
     if (body.assigneeUserId !== undefined) values.assigneeUserId = body.assigneeUserId;
     if (body.nextActor !== undefined) values.nextActor = body.nextActor;
+    if (body.metadata !== undefined) values.metadata = body.metadata;
+
+    // If the title was changed and the caller didn't supply a metadata
+    // override, clear `titleAuto` — a manual rename should pin the
+    // title (no future agent run silently overwrites human-chosen
+    // words).
+    if (body.title !== undefined && body.metadata === undefined) {
+      const existing = await db.select({ metadata: tasks.metadata })
+        .from(tasks)
+        .where(and(eq(tasks.id, c.req.param("id")), eq(tasks.tenantId, c.get("tenantId"))))
+        .limit(1);
+      const meta = (existing[0]?.metadata as Record<string, unknown> | null) ?? {};
+      if (meta.titleAuto === true) {
+        values.metadata = { ...meta, titleAuto: false };
+      }
+    }
 
     await db.update(tasks).set(values).where(
       and(eq(tasks.id, c.req.param("id")), eq(tasks.tenantId, c.get("tenantId"))),
@@ -848,6 +879,37 @@ export function createAdminRoutes(
       const taskRows = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1);
       const task = taskRows[0];
       if (task && task.status !== "done" && task.status !== "cancelled") {
+        // First-message title heuristic for copilot sessions. Replaces
+        // the literal "Copilot conversation" placeholder with something
+        // content-bearing the moment the user's first message lands —
+        // before the agent has even replied. The persona's first-reply
+        // rule still refines this into a proper 3-6 word summary.
+        // We only fire when:
+        //   - origin is copilot (so we don't muck with manual tasks)
+        //   - metadata.titleAuto is true (placeholder hasn't been
+        //     refined or user-edited yet)
+        //   - this is the first user comment (no prior comments at all
+        //     before this one — counted via task_comments rows)
+        if (
+          task.originKind === "copilot" &&
+          (task.metadata as Record<string, unknown> | null)?.titleAuto === true
+        ) {
+          const priorRows = await db.execute(sql`
+            SELECT COUNT(*)::int AS n FROM task_comments WHERE task_id = ${taskId}
+          `);
+          const priorCount = (priorRows as unknown as Array<{ n: number }>)[0]?.n ?? 0;
+          // We just inserted this comment, so n = 1 means "this is the
+          // first comment ever on the task." The agent's auto-posted
+          // result on the prior wake (if any) would already make it >1.
+          if (priorCount <= 1) {
+            const heuristic = derivePlaceholderTitleAdmin(body.body as string);
+            if (heuristic) {
+              await db.update(tasks)
+                .set({ title: heuristic, updatedAt: new Date() })
+                .where(eq(tasks.id, taskId));
+            }
+          }
+        }
         const wakeTargetAgentId = task.assigneeAgentId ?? task.createdByAgentId ?? null;
         if (wakeTargetAgentId) {
           if (task.nextActor !== "agent") {
@@ -2117,4 +2179,39 @@ export function createAdminRoutes(
   });
 
   return app;
+}
+
+/**
+ * First-message → placeholder copilot title.
+ *
+ * Mirror of the same helper in v2-modules/copilot.ts but kept local
+ * to avoid coupling admin-routes to the module. Both paths must
+ * produce the same shape so the user sees a consistent title-derivation
+ * rule whether they came through `start_session` (with initialMessage)
+ * or the shell's "New session + first comment" flow.
+ */
+function derivePlaceholderTitleAdmin(raw: string | undefined): string | null {
+  if (!raw) return null;
+  const collapsed = raw.replace(/\s+/g, " ").trim();
+  if (collapsed.length === 0) return null;
+
+  const stripped = collapsed
+    .replace(
+      /^(can\s+you|could\s+you|tell\s+me|show\s+me|help\s+me|help\s+with|please|hey|hi|hello|i\s+want\s+to|i\s+would\s+like\s+to|i'd\s+like\s+to|what's|whats|what\s+is|what|how\s+do\s+i|how\s+can\s+i|how|why|when|where)\b[\s,:.-]*/i,
+      "",
+    )
+    .trim();
+
+  const sentenceEnd = stripped.search(/[?!.]/);
+  let candidate = sentenceEnd > 0 ? stripped.slice(0, sentenceEnd) : stripped;
+
+  const MAX = 50;
+  if (candidate.length > MAX) {
+    const cut = candidate.slice(0, MAX);
+    const lastSpace = cut.lastIndexOf(" ");
+    candidate = (lastSpace > 20 ? cut.slice(0, lastSpace) : cut) + "…";
+  }
+  candidate = candidate.trim();
+  if (candidate.length < 3) return null;
+  return candidate.charAt(0).toUpperCase() + candidate.slice(1);
 }

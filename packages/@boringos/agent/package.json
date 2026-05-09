@@ -11,7 +11,7 @@
     }
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node -e \"require('fs').cpSync('src/personas','dist/personas',{recursive:true,filter:(p)=>!p.endsWith('.ts')})\"",
     "typecheck": "tsc --noEmit"
   },
   "license": "MIT",

@@ -214,6 +214,10 @@ function makePatchTask(db: Db): Tool {
         assigneeAgentId: z.string().uuid().nullable().optional(),
         assigneeUserId: z.string().uuid().nullable().optional(),
         parentId: z.string().uuid().nullable().optional(),
+        // Accept arbitrary JSON object — used by the copilot's
+        // first-wake rename to set `{"titleAuto": false}` and pin
+        // the new title against future auto-renames.
+        metadata: z.record(z.unknown()).optional(),
       })
       .refine(
         (v) =>
@@ -223,7 +227,8 @@ function makePatchTask(db: Db): Tool {
           v.priority !== undefined ||
           v.assigneeAgentId !== undefined ||
           v.assigneeUserId !== undefined ||
-          v.parentId !== undefined,
+          v.parentId !== undefined ||
+          v.metadata !== undefined,
         { message: "At least one field must be provided" },
       ),
     async handler(
@@ -236,6 +241,7 @@ function makePatchTask(db: Db): Tool {
         assigneeAgentId?: string | null;
         assigneeUserId?: string | null;
         parentId?: string | null;
+        metadata?: Record<string, unknown>;
       },
     ): Promise<ToolResult> {
       const updates: Record<string, unknown> = { updatedAt: new Date() };
@@ -246,6 +252,14 @@ function makePatchTask(db: Db): Tool {
       if (input.assigneeAgentId !== undefined) updates.assigneeAgentId = input.assigneeAgentId;
       if (input.assigneeUserId !== undefined) updates.assigneeUserId = input.assigneeUserId;
       if (input.parentId !== undefined) updates.parentId = input.parentId;
+      // Merge into existing metadata so callers can set individual
+      // keys without clobbering siblings ({titleAuto: false} keeps
+      // any other metadata fields intact).
+      if (input.metadata !== undefined) {
+        const existingRows = await db.select({ metadata: tasks.metadata }).from(tasks).where(eq(tasks.id, input.taskId)).limit(1);
+        const existing = (existingRows[0]?.metadata as Record<string, unknown> | null) ?? {};
+        updates.metadata = { ...existing, ...input.metadata };
+      }
 
       await db.update(tasks).set(updates).where(eq(tasks.id, input.taskId));
       return { ok: true, result: { ok: true } };

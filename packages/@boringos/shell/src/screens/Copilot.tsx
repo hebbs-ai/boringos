@@ -166,8 +166,13 @@ function NewSessionButton(props: { disabled: boolean; onCreated: (taskId: string
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          title: `Copilot conversation`,
+          // Placeholder shown until the user's first message arrives —
+          // the comments endpoint replaces this with a heuristic from
+          // the first message, and the copilot persona refines it on
+          // first reply (gated by metadata.titleAuto).
+          title: "New conversation",
           originKind: "copilot",
+          metadata: { titleAuto: true },
         }),
       });
       if (!res.ok) throw new Error(`Create failed: ${res.status}`);

@@ -65,7 +65,7 @@ export function TaskCommentsThread({ comments, agentsById, meId }: TaskCommentsT
                   </span>
                 </div>
                 <div className="mt-1">
-                  <Markdown source={c.body} compact />
+                  <Markdown source={c.body} compact className="text-slate-800" />
                 </div>
               </div>
               <span className="mt-1 text-[10px] text-slate-400 px-1">

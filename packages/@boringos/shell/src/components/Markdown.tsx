@@ -58,7 +58,13 @@ const PROSE_CLASS_BASE =
   // Tight, neutral typography. Avoid Tailwind's `prose` plugin so we
   // don't pull a 10kb stylesheet for a few markdown surfaces — set
   // the spacing/typography we actually need explicitly.
-  "text-sm text-slate-800 leading-relaxed " +
+  //
+  // No `text-{color}` here on purpose: text color is inherited from
+  // the parent bubble. That lets Copilot user-message bubbles
+  // (white on black) render correctly without fighting a hardcoded
+  // dark color. Parents that need a specific color pass it via
+  // `className`.
+  "text-sm leading-relaxed " +
   "[&_h1]:text-base [&_h1]:font-semibold [&_h1]:mt-3 [&_h1]:mb-1.5 " +
   "[&_h2]:text-sm [&_h2]:font-semibold [&_h2]:mt-3 [&_h2]:mb-1 " +
   "[&_h3]:text-sm [&_h3]:font-medium [&_h3]:mt-2 [&_h3]:mb-1 " +

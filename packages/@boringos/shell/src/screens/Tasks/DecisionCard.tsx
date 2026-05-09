@@ -63,7 +63,7 @@ function DecidedBanner({ decision }: { decision: NonNullable<ReturnType<typeof r
       </div>
       {decision.comment && (
         <div className="mt-2">
-          <Markdown source={decision.comment} compact />
+          <Markdown source={decision.comment} compact className="text-slate-800" />
         </div>
       )}
     </section>

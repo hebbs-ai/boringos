@@ -22,15 +22,25 @@ export interface NewTaskModalProps {
 }
 
 const ASSIGN_ME = "__me__";
+// The single human-facing assistant per tenant. Tenants may rename
+// the agent ("Chief of Staff" → "Atlas"), so resolve by role rather
+// than name.
+const CHIEF_OF_STAFF_ROLE = "chief-of-staff";
 
 export function NewTaskModal({ onClose, onCreated, agents, parentId }: NewTaskModalProps) {
   const client = useClient();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<"low" | "medium" | "high">("medium");
-  // Default to "Me" — the most common case for human-driven tasks
-  // (jot something down, come back to it).
-  const [assignee, setAssignee] = useState<string>(ASSIGN_ME);
+  // Default to Chief of Staff — that's the user's personal AI proxy
+  // and the 90% case for "+ New task" is "ask my agent to do X."
+  // Fall back to "Me" only when the tenant hasn't been provisioned
+  // with a CoS agent (rare; mostly self-hosted edge cases).
+  const defaultAssignee = useMemo(
+    () => agents.find((a) => a.role === CHIEF_OF_STAFF_ROLE)?.id ?? ASSIGN_ME,
+    [agents],
+  );
+  const [assignee, setAssignee] = useState<string>(defaultAssignee);
   const [wakeNow, setWakeNow] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);

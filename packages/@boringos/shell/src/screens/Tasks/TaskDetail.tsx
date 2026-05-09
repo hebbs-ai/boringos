@@ -146,7 +146,7 @@ export function TaskDetail({ taskId, meId, onChanged }: TaskDetailProps) {
               Description
             </h3>
             <div className="mt-1.5">
-              <Markdown source={t.description} />
+              <Markdown source={t.description} className="text-slate-800" />
             </div>
           </section>
         )}

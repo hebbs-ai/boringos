@@ -1821,3 +1821,132 @@ Per-run elapsed (ms): 21, 10, 8
 **Phase 2 contract verdict:** PASS — the SDK was not modified during the port. The contract held.
 
 **Note on the pre-existing baseline:** `src/validate.ts` + `src/manifest-schema.ts` are an in-progress packaging refactor (inlining the manifest schema instead of reading it from disk at runtime). They predate the start of Phase 2 work; the workstream owner should land them as a separate commit.
+
+## M3 — Seeding (2026-05-09T04:30:47.581Z)
+
+| Item | Expected | Actual |
+|---|---|---|
+| agents | 5 | 5 |
+| workflows (spec set) | 2 | 2 |
+| default pipelines | 1 | 1 |
+| pipeline stages | 7 | 7 |
+
+## M1 — Install timing (2026-05-09T04:30:48.868Z)
+
+| Metric | ms |
+|---|---|
+| min | 8 |
+| median | 9 |
+| max | 19 |
+| p95 | 19 |
+| iterations | 3 |
+| gate target | 30000 |
+
+Per-run elapsed (ms): 19, 9, 8
+
+## M2 — Slot visibility (2026-05-09T04:30:53.649Z)
+
+| Family | Count | Ids |
+|---|---|---|
+| pages | 4 | crm.companies, crm.contacts, crm.deals, crm.pipeline |
+| entityActions[crm_deal] | 4 | mark-lost, mark-won, run-analyst, send-followup |
+| settingsPanels | 1 | pipeline-config |
+
+## M5 — SDK regression (2026-05-09T04:30:54.286Z)
+
+**Repo HEAD:** `f7e78ac` (Phase 1 close)
+
+**Phase 2 SDK diffs (intentional, pre-existing baseline):**
+
+
+**New SDK diffs introduced by Phase 2 (K1-L12 + M1-M4):** none ✓
+
+**Phase 2 contract verdict:** PASS — the SDK was not modified during the port. The contract held.
+
+**Note on the pre-existing baseline:** `src/validate.ts` + `src/manifest-schema.ts` are an in-progress packaging refactor (inlining the manifest schema instead of reading it from disk at runtime). They predate the start of Phase 2 work; the workstream owner should land them as a separate commit.
+
+## M1 — Install timing (2026-05-09T04:34:14.805Z)
+
+| Metric | ms |
+|---|---|
+| min | 8 |
+| median | 10 |
+| max | 21 |
+| p95 | 21 |
+| iterations | 3 |
+| gate target | 30000 |
+
+Per-run elapsed (ms): 21, 10, 8
+
+## M3 — Seeding (2026-05-09T04:34:17.016Z)
+
+| Item | Expected | Actual |
+|---|---|---|
+| agents | 5 | 5 |
+| workflows (spec set) | 2 | 2 |
+| default pipelines | 1 | 1 |
+| pipeline stages | 7 | 7 |
+
+## M2 — Slot visibility (2026-05-09T04:34:19.194Z)
+
+| Family | Count | Ids |
+|---|---|---|
+| pages | 4 | crm.companies, crm.contacts, crm.deals, crm.pipeline |
+| entityActions[crm_deal] | 4 | mark-lost, mark-won, run-analyst, send-followup |
+| settingsPanels | 1 | pipeline-config |
+
+## M5 — SDK regression (2026-05-09T04:34:24.842Z)
+
+**Repo HEAD:** `f7e78ac` (Phase 1 close)
+
+**Phase 2 SDK diffs (intentional, pre-existing baseline):**
+
+
+**New SDK diffs introduced by Phase 2 (K1-L12 + M1-M4):** none ✓
+
+**Phase 2 contract verdict:** PASS — the SDK was not modified during the port. The contract held.
+
+**Note on the pre-existing baseline:** `src/validate.ts` + `src/manifest-schema.ts` are an in-progress packaging refactor (inlining the manifest schema instead of reading it from disk at runtime). They predate the start of Phase 2 work; the workstream owner should land them as a separate commit.
+
+## M1 — Install timing (2026-05-09T04:36:54.906Z)
+
+| Metric | ms |
+|---|---|
+| min | 7 |
+| median | 8 |
+| max | 17 |
+| p95 | 17 |
+| iterations | 3 |
+| gate target | 30000 |
+
+Per-run elapsed (ms): 17, 8, 7
+
+## M3 — Seeding (2026-05-09T04:36:55.992Z)
+
+| Item | Expected | Actual |
+|---|---|---|
+| agents | 5 | 5 |
+| workflows (spec set) | 2 | 2 |
+| default pipelines | 1 | 1 |
+| pipeline stages | 7 | 7 |
+
+## M2 — Slot visibility (2026-05-09T04:37:02.636Z)
+
+| Family | Count | Ids |
+|---|---|---|
+| pages | 4 | crm.companies, crm.contacts, crm.deals, crm.pipeline |
+| entityActions[crm_deal] | 4 | mark-lost, mark-won, run-analyst, send-followup |
+| settingsPanels | 1 | pipeline-config |
+
+## M5 — SDK regression (2026-05-09T04:37:05.010Z)
+
+**Repo HEAD:** `f7e78ac` (Phase 1 close)
+
+**Phase 2 SDK diffs (intentional, pre-existing baseline):**
+
+
+**New SDK diffs introduced by Phase 2 (K1-L12 + M1-M4):** none ✓
+
+**Phase 2 contract verdict:** PASS — the SDK was not modified during the port. The contract held.
+
+**Note on the pre-existing baseline:** `src/validate.ts` + `src/manifest-schema.ts` are an in-progress packaging refactor (inlining the manifest schema instead of reading it from disk at runtime). They predate the start of Phase 2 work; the workstream owner should land them as a separate commit.

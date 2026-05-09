@@ -130,7 +130,9 @@ describe("registerAppAgents", () => {
         ],
       }),
     );
-    expect(second.removed).toBe(2);
+    // Agent B is removed (no longer in definition), A is updated, C is added.
+    // inserted includes both updated and new agents.
+    expect(second.removed).toBe(1);
     expect(second.inserted).toHaveLength(2);
 
     const rows = await listForApp("k3-app-y");

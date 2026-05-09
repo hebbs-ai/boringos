@@ -1,9 +1,14 @@
-export { google } from "./connector.js";
-export type { GoogleConfig } from "./connector.js";
-export { GmailClient } from "./gmail-client.js";
-export { CalendarClient } from "./calendar-client.js";
+// SPDX-License-Identifier: MIT
+//
+// Google Workspace HTTP clients. The v1 `ConnectorDefinition`
+// wrapper + `default-workflows.ts` were deleted with the
+// connector framework — these clients are imported directly by
+// the v2 `google` Module in `@boringos/core/src/v2-modules/`.
+
 export {
-  buildGmailSyncSpec,
-  googleDefaultWorkflows,
-  GMAIL_SYNC_TAG,
-} from "./default-workflows.js";
+  GmailClient,
+  buildOutgoingMime,
+  encodeQuotedPrintable,
+  type EmailHeaders,
+} from "./gmail-client.js";
+export { CalendarClient } from "./calendar-client.js";

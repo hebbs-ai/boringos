@@ -16,7 +16,6 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@boringos/connector": "workspace:*",
     "@boringos/shared": "workspace:*"
   },
   "devDependencies": {

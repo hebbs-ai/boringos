@@ -544,8 +544,16 @@ async function ensureSchema(db: Db): Promise<void> {
     -- Add model column to agent_runs for tracking which model was used
     ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS model TEXT;
 
-    -- Add skills column to agents (tag list of capabilities, drives delegation router)
-    ALTER TABLE agents ADD COLUMN IF NOT EXISTS skills JSONB NOT NULL DEFAULT '[]'::jsonb;
+    -- Routing tags column on agents (used by the delegation router for
+    -- keyword matching). Originally named "skills" — task_15 §1 renamed
+    -- it to disambiguate from prompt skills (modules + company_skills).
+    -- This migration is idempotent and handles the transition: add the
+    -- new column, backfill from the old one if present, then drop it.
+    ALTER TABLE agents ADD COLUMN IF NOT EXISTS routing_tags JSONB NOT NULL DEFAULT '[]'::jsonb;
+    DO $$ BEGIN
+      UPDATE agents SET routing_tags = skills WHERE routing_tags = '[]'::jsonb;
+      ALTER TABLE agents DROP COLUMN skills;
+    EXCEPTION WHEN undefined_column THEN NULL; END $$;
 
     -- Task 07: Agent provenance tracking — distinguish shell/user/app agents
     ALTER TABLE agents ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'user';
@@ -603,6 +611,47 @@ async function ensureSchema(db: Db): Promise<void> {
     CREATE INDEX IF NOT EXISTS tasks_assignee_agent_idx ON tasks(assignee_agent_id);
     CREATE INDEX IF NOT EXISTS agent_runs_tenant_agent_idx ON agent_runs(tenant_id, agent_id);
 
+    -- Handoff state machine. Independent of the status column (lifecycle).
+    -- 'agent' = agent should pick up; 'human' = waiting on human; NULL = terminal.
+    -- Keep the legacy status column untouched so every consumer that
+    -- reads it keeps working; the new behavior keys off next_actor only.
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS next_actor TEXT;
+    UPDATE tasks SET next_actor = CASE
+      WHEN status = 'done' THEN NULL
+      WHEN status = 'cancelled' THEN NULL
+      WHEN assignee_agent_id IS NOT NULL THEN 'agent'
+      ELSE 'human'
+    END WHERE next_actor IS NULL;
+    CREATE INDEX IF NOT EXISTS tasks_next_actor_idx ON tasks(tenant_id, next_actor) WHERE next_actor IS NOT NULL;
+
+    -- Auto-set next_actor on insert if caller didn't specify one.
+    -- This means every existing INSERT path keeps working — no need
+    -- to touch admin-routes, copilot module, framework.tasks.create,
+    -- inbox-fanout, etc. The trigger derives next_actor from the
+    -- assignee at insert time. Status='done'/'cancelled' clear it
+    -- back to NULL on update.
+    CREATE OR REPLACE FUNCTION tasks_set_next_actor() RETURNS TRIGGER AS $$
+    BEGIN
+      IF TG_OP = 'INSERT' AND NEW.next_actor IS NULL THEN
+        NEW.next_actor := CASE
+          WHEN NEW.status IN ('done', 'cancelled') THEN NULL
+          WHEN NEW.assignee_agent_id IS NOT NULL THEN 'agent'
+          ELSE 'human'
+        END;
+      END IF;
+      IF TG_OP = 'UPDATE' AND NEW.status IN ('done', 'cancelled') AND OLD.status NOT IN ('done', 'cancelled') THEN
+        NEW.next_actor := NULL;
+      END IF;
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql;
+
+    DROP TRIGGER IF EXISTS tasks_set_next_actor_trigger ON tasks;
+    CREATE TRIGGER tasks_set_next_actor_trigger
+      BEFORE INSERT OR UPDATE ON tasks
+      FOR EACH ROW
+      EXECUTE FUNCTION tasks_set_next_actor();
+
     -- Phase 2 K4: workflow rows know which app they belong to so re-install can
     -- replace cleanly. ALTER is idempotent via IF NOT EXISTS.
     ALTER TABLE workflows ADD COLUMN IF NOT EXISTS metadata JSONB;
@@ -633,5 +682,136 @@ async function ensureSchema(db: Db): Promise<void> {
     );
     CREATE UNIQUE INDEX IF NOT EXISTS tenant_app_links_uniq_idx
       ON tenant_app_links(tenant_id, source_app_id, target_app_id, capability);
+
+    -- v2 (Skills + Tools + Modules) — additive scaffolding for the
+    -- audited tool dispatcher. Phase 1 of task_12. Unused until the
+    -- v2 dispatcher lands in Phase 2; safe to ship now because the
+    -- v1 code paths never read or write this table.
+    CREATE TABLE IF NOT EXISTS tool_calls (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      tool_name TEXT NOT NULL,
+      module_id TEXT NOT NULL,
+      invoked_by TEXT NOT NULL,
+      agent_id UUID,
+      run_id UUID,
+      task_id UUID,
+      inputs JSONB,
+      result JSONB,
+      error JSONB,
+      status TEXT NOT NULL,
+      duration_ms INTEGER,
+      idempotency_key TEXT,
+      started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      ended_at TIMESTAMPTZ
+    );
+    CREATE INDEX IF NOT EXISTS tool_calls_tenant_tool_idx
+      ON tool_calls(tenant_id, tool_name);
+    CREATE INDEX IF NOT EXISTS tool_calls_tenant_started_idx
+      ON tool_calls(tenant_id, started_at);
+    CREATE INDEX IF NOT EXISTS tool_calls_run_idx
+      ON tool_calls(run_id);
+
+    -- v2 CRM module schema. Tables prefixed hebbs_crm__ per the
+    -- v2 naming convention. Phase 8 of task_12. Additive: v1 CRM
+    -- in the separate repo (with crm_* tables) is unaffected.
+    CREATE TABLE IF NOT EXISTS hebbs_crm__pipelines (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      stages JSONB NOT NULL DEFAULT '[]'::jsonb,
+      is_default TEXT NOT NULL DEFAULT 'false',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS hebbs_crm__pipelines_tenant_idx
+      ON hebbs_crm__pipelines(tenant_id);
+
+    CREATE TABLE IF NOT EXISTS hebbs_crm__contacts (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      email TEXT,
+      phone TEXT,
+      company TEXT,
+      title TEXT,
+      notes TEXT,
+      custom_fields JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS hebbs_crm__contacts_tenant_idx
+      ON hebbs_crm__contacts(tenant_id);
+    CREATE INDEX IF NOT EXISTS hebbs_crm__contacts_email_idx
+      ON hebbs_crm__contacts(tenant_id, email);
+
+    CREATE TABLE IF NOT EXISTS hebbs_crm__deals (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      amount_cents INTEGER NOT NULL DEFAULT 0,
+      currency TEXT NOT NULL DEFAULT 'USD',
+      pipeline_id UUID NOT NULL,
+      stage_id TEXT NOT NULL,
+      contact_id UUID,
+      expected_close_date TIMESTAMPTZ,
+      notes TEXT,
+      custom_fields JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS hebbs_crm__deals_tenant_idx
+      ON hebbs_crm__deals(tenant_id);
+    CREATE INDEX IF NOT EXISTS hebbs_crm__deals_pipeline_idx
+      ON hebbs_crm__deals(tenant_id, pipeline_id);
+    CREATE INDEX IF NOT EXISTS hebbs_crm__deals_stage_idx
+      ON hebbs_crm__deals(tenant_id, stage_id);
+    CREATE INDEX IF NOT EXISTS hebbs_crm__deals_contact_idx
+      ON hebbs_crm__deals(contact_id);
+
+    CREATE TABLE IF NOT EXISTS hebbs_crm__activities (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      entity_kind TEXT NOT NULL,
+      entity_id UUID NOT NULL,
+      action TEXT NOT NULL,
+      payload JSONB,
+      actor_agent_id UUID,
+      actor_user_id UUID,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS hebbs_crm__activities_tenant_entity_idx
+      ON hebbs_crm__activities(tenant_id, entity_kind, entity_id);
+
+    -- v2 module install state. One row per (tenant, module). The
+    -- framework registry knows which modules the host has imported;
+    -- this table records which of those a given tenant has actually
+    -- installed (via the admin UI or auto-install at signup).
+    -- Phase 9 of task_12.
+    CREATE TABLE IF NOT EXISTS module_installs (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      module_id TEXT NOT NULL,
+      version TEXT NOT NULL,
+      config JSONB NOT NULL DEFAULT '{}'::jsonb,
+      installed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS module_installs_tenant_module_idx
+      ON module_installs(tenant_id, module_id);
+
+    -- v2 module-shipped schema migrations applied per-tenant.
+    -- Tracks which Module.schema[].id has been applied for which
+    -- (tenant, module). Enables idempotent re-install + clean
+    -- rollback at uninstall. Chunk C of the final session.
+    CREATE TABLE IF NOT EXISTS module_migrations (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+      module_id TEXT NOT NULL,
+      migration_id TEXT NOT NULL,
+      applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS module_migrations_uniq_idx
+      ON module_migrations(tenant_id, module_id, migration_id);
   `);
 }

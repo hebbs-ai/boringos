@@ -18,6 +18,10 @@ export type {
   SkillProvider,
   Hook,
   HookHandler,
+  SettingDefinition,
+  SettingType,
+  SettingScope,
+  SettingRole,
 } from "./types.js";
 
 export {
@@ -29,6 +33,9 @@ export {
   WAKE_REASONS,
   CONCURRENCY_POLICIES,
   CATCH_UP_POLICIES,
+  SETTING_TYPES,
+  SETTING_SCOPES,
+  SETTING_ROLES,
 } from "./types.js";
 
 export { createHook } from "./hook.js";

@@ -16,6 +16,26 @@
 
 import { useState } from "react";
 import { NavLink } from "react-router-dom";
+import {
+  Activity as ActivityIcon,
+  AppWindow,
+  Calendar as CalendarIcon,
+  CheckSquare,
+  Cog,
+  Database,
+  DollarSign,
+  Folders,
+  GitBranch,
+  Home as HomeIcon,
+  Inbox as InboxIcon,
+  MessageSquare,
+  Plug,
+  Repeat,
+  Shapes,
+  Users,
+  Workflow,
+  type LucideIcon,
+} from "lucide-react";
 
 import { useAuth } from "../auth/AuthProvider.js";
 import { useBrand } from "../branding/BrandProvider.js";
@@ -24,46 +44,56 @@ import { useSlot } from "../slots/context.js";
 interface NavItem {
   to: string;
   label: string;
-  icon: string;
+  Icon: LucideIcon;
 }
 
-const WORKSPACE_ITEMS: NavItem[] = [
-  { to: "/home", label: "Home", icon: "⌂" },
-  { to: "/copilot", label: "Copilot", icon: "◇" },
-  { to: "/inbox", label: "Inbox", icon: "✉" },
-  { to: "/calendar", label: "Calendar", icon: "▦" },
-  { to: "/tasks", label: "Tasks", icon: "☑" },
+// Sidebar groups are organised by audience, not data model:
+//  - WORK: everyone — daily driver
+//  - CABINET: read-for-everyone, edit-admin (gated per-action inside)
+//  - EXTEND: admin only — install/configure capabilities
+//  - ADMIN: admin only — tenant operations
+// EXTEND + ADMIN are filtered at render time on user.role === "admin".
+
+const WORK_ITEMS: NavItem[] = [
+  { to: "/home", label: "Home", Icon: HomeIcon },
+  { to: "/copilot", label: "Copilot", Icon: MessageSquare },
+  { to: "/inbox", label: "Inbox", Icon: InboxIcon },
+  { to: "/calendar", label: "Calendar", Icon: CalendarIcon },
+  { to: "/tasks", label: "Tasks", Icon: CheckSquare },
+  { to: "/drive", label: "Drive", Icon: Folders },
 ];
 
-const TOOL_ITEMS: NavItem[] = [
-  { to: "/agents", label: "Agents", icon: "⁂" },
-  { to: "/workflows", label: "Workflows", icon: "⇒" },
-  { to: "/drive", label: "Drive", icon: "≡" },
-  { to: "/connectors", label: "Connectors", icon: "⌆" },
-  { to: "/apps", label: "Apps", icon: "▣" },
+const CABINET_ITEMS: NavItem[] = [
+  { to: "/agents", label: "Agents", Icon: Users },
+  { to: "/workflows", label: "Workflows", Icon: Workflow },
+];
+
+const EXTEND_ITEMS: NavItem[] = [
+  { to: "/apps", label: "Apps", Icon: AppWindow },
+  { to: "/connectors", label: "Connectors", Icon: Plug },
+  { to: "/routines", label: "Routines", Icon: Repeat },
+  { to: "/budgets", label: "Budgets", Icon: DollarSign },
 ];
 
 const ADMIN_ITEMS: NavItem[] = [
-  { to: "/activity", label: "Activity", icon: "☰" },
-  { to: "/team", label: "Team", icon: "☶" },
-  { to: "/settings", label: "Settings", icon: "⚙" },
+  { to: "/team", label: "Team", Icon: Shapes },
+  { to: "/activity", label: "Activity", Icon: ActivityIcon },
+  { to: "/settings", label: "Settings", Icon: Cog },
 ];
 
 const linkClasses = ({ isActive }: { isActive: boolean }) =>
   `flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-colors ${
     isActive
-      ? "bg-slate-100 text-slate-900 font-medium"
-      : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+      ? "bg-bg-warm text-text font-medium"
+      : "text-muted-strong hover:bg-bg-warm hover:text-text"
   }`;
 
 function NavGroup({ items }: { items: NavItem[] }) {
   return (
     <>
-      {items.map((item) => (
+      {items.map(({ Icon, ...item }) => (
         <NavLink key={item.to} to={item.to} className={linkClasses}>
-          <span className="w-[18px] text-center text-[15px] shrink-0">
-            {item.icon}
-          </span>
+          <Icon className="h-4 w-4 shrink-0 text-muted-strong" aria-hidden />
           <span className="flex-1">{item.label}</span>
         </NavLink>
       ))}
@@ -74,7 +104,7 @@ function NavGroup({ items }: { items: NavItem[] }) {
 function GroupHeading({ children }: { children: string }) {
   return (
     <div className="mt-4 mb-1 px-3">
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">
         {children}
       </div>
     </div>
@@ -87,6 +117,7 @@ export function Sidebar() {
   const [showTenantMenu, setShowTenantMenu] = useState(false);
 
   const hasMultipleTenants = (user?.tenants?.length ?? 0) > 1;
+  const isAdmin = user?.role === "admin";
 
   // App-contributed nav entries. Sorted by label.
   const appPages = useSlot("pages");
@@ -96,20 +127,20 @@ export function Sidebar() {
       nav: {
         to: `/${c.appId}/${c.slotId}`,
         label: c.slot.id,
-        icon: "◈",
+        Icon: GitBranch,
       },
     }))
     .sort((a, b) => a.nav.label.localeCompare(b.nav.label));
 
   return (
-    <aside className="w-[248px] bg-slate-50 border-r border-slate-200 p-2 flex flex-col shrink-0 overflow-y-auto">
+    <aside className="w-[248px] bg-bg border-r border-border p-2 flex flex-col shrink-0 overflow-y-auto">
       {/* Brand / tenant header — A9 BrandProvider personalizes the brand half */}
       <div className="px-2 pb-3 relative">
         <button
           type="button"
           onClick={() => hasMultipleTenants && setShowTenantMenu((v) => !v)}
           className={`flex items-center gap-2 w-full text-left rounded-md px-1 py-1 ${
-            hasMultipleTenants ? "hover:bg-slate-100 cursor-pointer" : ""
+            hasMultipleTenants ? "hover:bg-bg-warm cursor-pointer" : ""
           }`}
         >
           {brand.logoUrl ? (
@@ -124,22 +155,25 @@ export function Sidebar() {
             </span>
           )}
           <div className="flex-1 min-w-0">
-            <h2 className="text-sm font-semibold text-slate-900 truncate">
+            <h2
+              className="font-logo text-sm font-bold text-text truncate"
+              style={{ letterSpacing: "0.04em" }}
+            >
               {user?.tenantName ?? brand.productName}
             </h2>
             {brand.productTagline && (
-              <p className="text-[10px] text-slate-400 truncate">
+              <p className="text-[10px] text-muted truncate">
                 {brand.productTagline}
               </p>
             )}
           </div>
           {hasMultipleTenants && (
-            <span className="text-[10px] text-slate-400">▼</span>
+            <span className="text-[10px] text-muted">▼</span>
           )}
         </button>
 
         {showTenantMenu && user?.tenants && (
-          <div className="absolute left-2 right-2 top-full mt-1 rounded-md border border-slate-200 bg-white shadow-md z-50">
+          <div className="absolute left-2 right-2 top-full mt-1 rounded-md border border-border bg-white shadow-md z-50">
             {user.tenants.map((t) => (
               <button
                 key={t.tenantId}
@@ -148,14 +182,14 @@ export function Sidebar() {
                   void switchTenant(t.tenantId);
                   setShowTenantMenu(false);
                 }}
-                className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-50 transition-colors ${
+                className={`w-full text-left px-3 py-2 text-sm hover:bg-bg transition-colors ${
                   t.tenantId === user.tenantId
-                    ? "font-medium text-blue-600"
-                    : "text-slate-700"
+                    ? "font-medium text-accent"
+                    : "text-text-secondary"
                 }`}
               >
                 {t.tenantName}
-                <span className="ml-2 text-xs text-slate-400">{t.role}</span>
+                <span className="ml-2 text-xs text-muted">{t.role}</span>
               </button>
             ))}
           </div>
@@ -163,49 +197,58 @@ export function Sidebar() {
       </div>
 
       <nav className="flex flex-col gap-0.5 flex-1">
-        <NavGroup items={WORKSPACE_ITEMS} />
+        <GroupHeading>Work</GroupHeading>
+        <NavGroup items={WORK_ITEMS} />
 
         {appNavItems.length > 0 && (
           <>
-            <GroupHeading>Apps</GroupHeading>
-            {appNavItems.map(({ appId, nav }) => (
-              <NavLink key={`${appId}/${nav.to}`} to={nav.to} className={linkClasses}>
-                <span className="w-[18px] text-center text-[15px] shrink-0">
-                  {nav.icon}
-                </span>
-                <span className="flex-1">{nav.label}</span>
-                <span className="text-[10px] text-slate-400 font-mono">
-                  {appId}
-                </span>
-              </NavLink>
-            ))}
+            <GroupHeading>Installed</GroupHeading>
+            {appNavItems.map(({ appId, nav }) => {
+              const { Icon } = nav;
+              return (
+                <NavLink key={`${appId}/${nav.to}`} to={nav.to} className={linkClasses}>
+                  <Icon className="h-4 w-4 shrink-0 text-muted-strong" aria-hidden />
+                  <span className="flex-1">{nav.label}</span>
+                  <span className="text-[10px] text-muted font-mono">
+                    {appId}
+                  </span>
+                </NavLink>
+              );
+            })}
           </>
         )}
 
-        <GroupHeading>Tools</GroupHeading>
-        <NavGroup items={TOOL_ITEMS} />
+        <GroupHeading>Cabinet</GroupHeading>
+        <NavGroup items={CABINET_ITEMS} />
 
-        <GroupHeading>Admin</GroupHeading>
-        <NavGroup items={ADMIN_ITEMS} />
+        {isAdmin && (
+          <>
+            <GroupHeading>Extend</GroupHeading>
+            <NavGroup items={EXTEND_ITEMS} />
+
+            <GroupHeading>Admin</GroupHeading>
+            <NavGroup items={ADMIN_ITEMS} />
+          </>
+        )}
       </nav>
 
       {user && (
-        <div className="mt-auto border-t border-slate-200 pt-3 px-2">
+        <div className="mt-auto border-t border-border pt-3 px-2">
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-semibold shrink-0">
+            <div className="w-7 h-7 rounded-full bg-accent-tint text-accent flex items-center justify-center text-xs font-semibold shrink-0">
               {user.name.charAt(0).toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium text-slate-900 truncate">
+              <div className="text-sm font-medium text-text truncate">
                 {user.name}
               </div>
-              <div className="text-xs text-slate-400 truncate">{user.email}</div>
+              <div className="text-xs text-muted truncate">{user.email}</div>
             </div>
           </div>
           <button
             type="button"
             onClick={() => void logout()}
-            className="mt-2 w-full text-left px-2 py-1 rounded text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-colors"
+            className="mt-2 w-full text-left px-2 py-1 rounded text-xs text-muted hover:bg-bg-warm hover:text-text transition-colors"
           >
             Sign out
           </button>

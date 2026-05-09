@@ -23,14 +23,14 @@ export function BulkActionBar({
 }: BulkActionBarProps) {
   if (count === 0) return null;
   return (
-    <div className="px-3 py-2 bg-slate-900 text-white text-xs flex items-center gap-2">
+    <div className="px-3 py-2 bg-accent text-white text-xs flex items-center gap-2">
       <span className="tabular-nums font-medium">{count} selected</span>
       <div className="flex items-center gap-1 ml-auto">
         <button
           type="button"
           onClick={onArchive}
           disabled={busy}
-          className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-50"
+          className="px-2.5 py-1 rounded bg-accent hover:bg-accent-light disabled:opacity-50"
         >
           Archive
         </button>
@@ -38,7 +38,7 @@ export function BulkActionBar({
           type="button"
           onClick={onMarkRead}
           disabled={busy}
-          className="px-2.5 py-1 rounded hover:bg-slate-800 disabled:opacity-50"
+          className="px-2.5 py-1 rounded hover:bg-accent-light disabled:opacity-50"
         >
           Mark read
         </button>
@@ -46,7 +46,7 @@ export function BulkActionBar({
           type="button"
           onClick={onMarkUnread}
           disabled={busy}
-          className="px-2.5 py-1 rounded hover:bg-slate-800 disabled:opacity-50"
+          className="px-2.5 py-1 rounded hover:bg-accent-light disabled:opacity-50"
         >
           Mark unread
         </button>
@@ -54,7 +54,7 @@ export function BulkActionBar({
           type="button"
           onClick={onCancel}
           disabled={busy}
-          className="px-2.5 py-1 rounded hover:bg-slate-800 disabled:opacity-50"
+          className="px-2.5 py-1 rounded hover:bg-accent-light disabled:opacity-50"
         >
           Cancel
         </button>

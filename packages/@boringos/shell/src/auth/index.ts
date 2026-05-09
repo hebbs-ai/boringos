@@ -11,3 +11,4 @@ export {
 export { Login } from "./Login.js";
 export { Signup } from "./Signup.js";
 export { RequireAuth } from "./RequireAuth.js";
+export { RequireAdmin } from "./RequireAdmin.js";

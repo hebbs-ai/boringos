@@ -43,9 +43,9 @@ export function createHierarchyProvider(deps: { db: unknown }): ContextProvider 
         if (reports.length > 0) {
           lines.push(`- **Your direct reports:**`);
           for (const r of reports) {
-            const skills = Array.isArray((r as any).skills) ? ((r as any).skills as string[]) : [];
-            const skillsLabel = skills.length > 0 ? ` — skills: ${skills.slice(0, 4).join(", ")}` : "";
-            lines.push(`  - ${r.name} (${r.role}) — ${r.status}${skillsLabel}`);
+            const tags = Array.isArray((r as any).routingTags) ? ((r as any).routingTags as string[]) : [];
+            const tagsLabel = tags.length > 0 ? ` — tags: ${tags.slice(0, 4).join(", ")}` : "";
+            lines.push(`  - ${r.name} (${r.role}) — ${r.status}${tagsLabel}`);
           }
           lines.push(`- When a task is too large or outside your expertise, delegate to your reports.`);
           lines.push(`- Create subtasks and assign them. Don't do everything yourself.`);
@@ -60,10 +60,10 @@ export function createHierarchyProvider(deps: { db: unknown }): ContextProvider 
           if (eligiblePeers.length > 0) {
             lines.push(`- **Your colleagues (peers):**`);
             for (const p of eligiblePeers.slice(0, MAX_PEERS)) {
-              const skills = Array.isArray((p as any).skills) ? ((p as any).skills as string[]) : [];
-              const skillsLabel = skills.length > 0 ? ` — skills: ${skills.slice(0, 4).join(", ")}` : "";
+              const tags = Array.isArray((p as any).routingTags) ? ((p as any).routingTags as string[]) : [];
+              const tagsLabel = tags.length > 0 ? ` — tags: ${tags.slice(0, 4).join(", ")}` : "";
               const pausedLabel = p.status === "paused" ? " [paused]" : "";
-              lines.push(`  - ${p.name} (${p.role})${skillsLabel}${pausedLabel}`);
+              lines.push(`  - ${p.name} (${p.role})${tagsLabel}${pausedLabel}`);
             }
             if (eligiblePeers.length > MAX_PEERS) {
               lines.push(`  - … and ${eligiblePeers.length - MAX_PEERS} more`);

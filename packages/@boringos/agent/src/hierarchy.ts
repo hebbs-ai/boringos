@@ -7,16 +7,20 @@ import { generateId } from "@boringos/shared";
  * Find the best direct report to delegate a task to.
  *
  * Three tiers, resolved in order:
- *  A) exact skill match — task's requiredSkill (explicit) or skill name found in title/description
+ *  A) routing-tag match — task's requiredTag (explicit) or tag name found in title/description
  *  B) role heuristic — hardcoded keyword-to-role regex (original behavior)
  *  C) LLM router — optional, requires forceLLM or tenant opt-in; currently a stub that returns null
+ *
+ * Routing tags live on `agents.routingTags` (jsonb string array). They are NOT the
+ * same as prompt skills (modules + company_skills); they are operator-set hints
+ * the router uses to send a task to the right agent. See task_15 §1 for context.
  *
  * Load-aware tiebreak: among tied candidates, prefer the agent with fewer in-flight tasks.
  */
 export interface DelegateQuery {
   title: string;
   description?: string;
-  requiredSkill?: string;
+  requiredTag?: string;
   forceLLM?: boolean;
 }
 
@@ -33,15 +37,15 @@ export async function findDelegateForTask(
     id: string;
     role: string;
     status: string;
-    skills: string[] | null;
+    routingTags: string[] | null;
   }>;
   if (reports.length === 0) return null;
 
   const eligible = reports.filter((r) => r.status !== "paused" && r.status !== "archived");
   if (eligible.length === 0) return null;
 
-  // Tier A: exact skill match
-  const tierA = matchBySkill(query, eligible);
+  // Tier A: routing-tag match
+  const tierA = matchByRoutingTag(query, eligible);
   if (tierA.length > 0) {
     return await tiebreakByLoad(db, tierA);
   }
@@ -66,17 +70,20 @@ export async function findDelegateForTask(
   return eligible[0]?.id ?? null;
 }
 
-function matchBySkill(query: DelegateQuery, reports: Array<{ id: string; skills: string[] | null }>): string[] {
+function matchByRoutingTag(
+  query: DelegateQuery,
+  reports: Array<{ id: string; routingTags: string[] | null }>,
+): string[] {
   const matches: string[] = [];
   const haystack = `${query.title} ${query.description ?? ""}`.toLowerCase();
   for (const r of reports) {
-    const skills = r.skills ?? [];
-    if (query.requiredSkill && skills.includes(query.requiredSkill)) {
+    const tags = r.routingTags ?? [];
+    if (query.requiredTag && tags.includes(query.requiredTag)) {
       matches.push(r.id);
       continue;
     }
-    // Any skill mentioned in the task title/description
-    if (skills.some((s) => s && haystack.includes(s.toLowerCase()))) {
+    // Any routing tag mentioned in the task title/description
+    if (tags.some((s) => s && haystack.includes(s.toLowerCase()))) {
       matches.push(r.id);
     }
   }
@@ -123,7 +130,7 @@ async function tiebreakByLoad(db: Db, candidateIds: string[]): Promise<string> {
  */
 async function llmRouterStub(
   _query: DelegateQuery,
-  _reports: Array<{ id: string; role: string; skills: string[] | null }>,
+  _reports: Array<{ id: string; role: string; routingTags: string[] | null }>,
 ): Promise<string | null> {
   return null;
 }

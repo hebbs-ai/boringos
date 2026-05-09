@@ -57,13 +57,13 @@ function DecidedBanner({ decision }: { decision: NonNullable<ReturnType<typeof r
         >
           {isApprove ? "✓ Approved" : "✗ Rejected"}
         </span>
-        <span className="text-slate-500">
+        <span className="text-muted">
           {formatRelativeTime(decision.decidedAt)}
         </span>
       </div>
       {decision.comment && (
         <div className="mt-2">
-          <Markdown source={decision.comment} compact />
+          <Markdown source={decision.comment} compact className="text-text" />
         </div>
       )}
     </section>
@@ -101,15 +101,15 @@ function PendingPanel({ task, onDecided }: { task: Task; onDecided: () => void }
         <span className="text-[10px] uppercase tracking-wider text-amber-800 font-medium">
           ⚠ Decision needed
         </span>
-        <span className="text-xs text-slate-700">{summary}</span>
+        <span className="text-xs text-text-secondary">{summary}</span>
       </div>
 
       {params && Object.keys(params).length > 0 && (
         <details className="mt-2">
-          <summary className="text-[11px] text-slate-500 cursor-pointer hover:text-slate-900">
+          <summary className="text-[11px] text-muted cursor-pointer hover:text-text">
             Show proposed parameters
           </summary>
-          <pre className="mt-1.5 text-[11px] text-slate-700 bg-white rounded px-2.5 py-1.5 ring-1 ring-slate-200 whitespace-pre-wrap font-mono overflow-x-auto">
+          <pre className="mt-1.5 text-[11px] text-text-secondary bg-white rounded px-2.5 py-1.5 ring-1 ring-border whitespace-pre-wrap font-mono overflow-x-auto">
 {JSON.stringify(params, null, 2)}
           </pre>
         </details>
@@ -121,11 +121,11 @@ function PendingPanel({ task, onDecided }: { task: Task; onDecided: () => void }
         disabled={busy}
         rows={2}
         placeholder="Optional note — conditions, reasoning, alternative the agent should consider…"
-        className="mt-2 w-full text-sm border border-slate-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500/40 font-sans"
+        className="mt-2 w-full text-sm border border-border rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-accent/40 font-sans"
       />
 
       <div className="mt-2 flex items-center justify-between gap-2">
-        <span className="text-[11px] text-slate-500">
+        <span className="text-[11px] text-muted">
           Your note posts on the original task and wakes the requesting
           agent.
         </span>

@@ -1,189 +1,213 @@
 # BoringOS
 
-> A framework for building agentic platforms. Like Rails extracted from Basecamp — but for AI agents.
+> The operating system for agents. You ship Modules; the agent
+> reads skills and calls tools. Everything else is plumbing.
 
-## Quick Start
+BoringOS is an open-source framework for building agentic
+platforms — agents receive tasks, execute autonomously via CLI
+subprocesses (Claude Code, Codex, Gemini CLI, Ollama, …), and
+report back. The framework never calls LLM APIs directly; CLIs
+are the agents, BoringOS is the orchestrator.
 
-```typescript
-import { BoringOS } from "@boringos/core";
+---
 
-const app = new BoringOS({});
-const server = await app.listen(3000);
-// Embedded Postgres boots, schema created, 6 runtimes registered
-// Agent callback API at /api/agent/* (JWT authenticated)
-// Health check at /health
-```
+## The two primitives
 
-Or scaffold a new project:
+The agent's prompt is built from two registries, sourced from
+plain data — no hand-written providers per integration.
+
+- **Skills** — markdown files (`SKILL.md`) shipped by every
+  component. Loaded into the agent's prompt under `## Skills`.
+  Teach the agent how to think about a domain.
+- **Tools** — Zod-typed callable operations. Registered by
+  Modules, dispatched at one URL: `POST /api/tools/<module>.<tool>`.
+  The agent reads an inventory, calls them, gets validated
+  responses with structured errors.
+
+## The one shape
+
+A **Module** bundles skills + tools + (optionally) schema, UI,
+default workflows, default agents, routines, OAuth, and webhooks.
+Three roles, same shape:
+
+- **Connector** — brokers a 3rd-party API (`connector-google`,
+  `connector-slack`)
+- **Capability** — pure logic depending on other Modules
+  (`triage`, `prevent-churn`)
+- **Hybrid** — owns its own data + tools (`hebbs-crm`, `inbox`)
+
+All registered the same way: `app.module(myModule)`. Adding
+Notion is one Module package, zero framework edits.
+
+---
+
+## 60-second quickstart
+
+Scaffold a host:
 
 ```bash
 npx create-boringos my-app
-cd my-app && npm run dev
+cd my-app && pnpm install && pnpm dev
 ```
 
-Zero external dependencies required. Embedded Postgres starts automatically.
-
-## What is BoringOS?
-
-BoringOS is a framework that lets you build platforms where AI agents receive tasks, execute autonomously via CLI tools, and report back. Agents run as CLI subprocesses (Claude Code, Codex, Gemini CLI, Ollama, or any command), not via raw LLM API calls.
-
-The framework handles:
-- **Agent execution pipeline** — wake → queue → build context → spawn runtime → stream output → persist state
-- **Context assembly** — 12 composable providers that build system instructions + task context
-- **6 runtime adapters** — Claude, ChatGPT, Gemini, Ollama, generic command, webhook
-- **12 persona bundles** — CEO, CTO, engineer, researcher, PM, QA, DevOps, designer, PA, content creator, finance, default
-- **Workflow engine** — DAG-based execution with condition branching, delays, and transforms
-- **Cognitive memory** — pluggable memory providers (Hebbs or custom)
-- **File storage** — local drive with organization rules agents understand
-- **Database** — embedded or external Postgres with Drizzle ORM
-- **JWT-authenticated callback API** — agents call back to update tasks, post comments, record work products
-- **Admin REST API** — manage agents, tasks, runs, runtimes, approvals, tenant settings via API key auth
-- **Agent pause / kill switch** — global tenant-level and per-agent pause with `skipped` run status, auto-re-wake on resume for pending tasks
-- **Runtime model management** — model catalog per runtime, admin model selection, automatic config sync
-- **SSE realtime events** — live streaming of run status, task updates, approvals
-- **User auth (multi-tenant SaaS)** — signup with `tenantName` (creates new tenant) or `inviteCode` (joins existing), login returns all tenants, `/me` with `X-Tenant-Id` for switching, invitation system (create/list/revoke), team management (list users, change roles, remove members), exportable `createAuthMiddleware(db)` for custom routes
-- **Activity logging** — audit trail for all admin mutations
-- **Budget enforcement** — cost limits per agent/tenant with hard-stop + warnings
-- **Routine scheduler** — cron-based recurring agent tasks
-- **Notifications** — email via Resend (task completion, failures, approvals)
-- **Execution workspaces** — git worktree provisioning for code tasks
-- **Skill system** — sync from GitHub/URL, per-agent attachment, trust levels
-- **Plugin system** — extensible jobs + webhooks, built-in GitHub plugin ([guide](PLUGINS.md))
-- **Projects & Goals** — organize tasks into projects with repo config, auto-identifiers (ALPHA-001)
-- **Task features** — labels, read states, attachments, checkout locks
-- **Drive features** — file indexing, memory sync, drive skill revisions
-- **Onboarding** — 5-step setup wizard per tenant
-- **Device auth** — CLI login flow (generate code → browser approve → poll for token)
-- **Evaluations** — A/B test agent quality with structured test cases
-- **Inbox** — receive and triage external messages, convert to tasks, assign to users via `assigneeUserId`
-- **Inbox UI (`@boringos/shell`)** — two-pane list + detail, threaded conversations, sender / time / triage chips, AI-drafted replies inline, click-to-open, bulk select (Cmd / Shift), snooze with live wake-in countdown, archive / mark-read / mark-unread, reply composer that sends through Gmail
-- **Bidirectional Gmail sync** — actions on Hebbs items mirror to Gmail labels (archive → remove `INBOX`, mark read/unread → toggle `UNREAD`, snooze → remove `INBOX` + add `Hebbs/Snoozed`, snooze wake → restore `INBOX`); reverse direction polls `users.history.list` every 2 minutes so changes made directly in Gmail flow back to Hebbs
-- **Per-task sessions** — every CLI session is bound to a task. Different tasks for the same agent get independent sessions; comments on a task resume that task's transcript. No per-agent shared transcript, no cross-task bleed-through (see [`docs/blockers/done/task_02_session_per_task.md`](docs/blockers/done/task_02_session_per_task.md))
-- **Custom schema** — `.schema(ddl)` to add your own tables that reference framework tables
-- **Entity linking** — link domain entities (contacts, deals) to tasks, runs, inbox items
-- **Event-driven architecture** — apps emit and subscribe to events via `EventBus`, agents wake reactively on `inbox.item_created` and custom events
-- **Event-to-inbox routing** — declaratively route connector events to inbox
-- **Cross-entity search** — `GET /api/admin/search?q=` across tasks, agents, inbox
-- **Agent templates** — `createAgentFromTemplate(role)` with built-in personas
-- **Team templates** — `createTeam("engineering")` wires up CTO + engineers + QA with hierarchy
-- **Agent hierarchy** — org tree, delegation to reports, escalation to manager
-- **Data sync** — workflow-triggered sync for email, calendar, Slack (connector-action → for-each → create-inbox-item → wake-agent)
-- **Auto-wake on comment** — posting a comment on an assigned task auto-wakes the agent
-- **Auto-post results** — agent run output auto-posted as comment on the task
-- **Built-in copilot (multi-tenant)** — conversational AI assistant that can operate the system AND build features, resolves tenant from session token, auto-created per tenant on signup
-- **Convention over configuration** — everything works with zero config
-
-## Agent Hierarchy
-
-Create an entire AI org in one API call. Agents delegate down, escalate up, and share memory across the tree.
-
-```
-                                 ┌─────────┐
-                                 │   CEO   │
-                                 │Strategy │
-                                 └────┬────┘
-                    ┌─────────────┬───┴────┬──────────────┐
-                    │             │        │              │
-              ┌─────┴─────┐ ┌────┴────┐ ┌─┴───────┐ ┌────┴─────┐
-              │    CTO    │ │   CMO   │ │VP Sales │ │ Copilot  │
-              │  Tech Lead│ │Marketing│ │ Revenue │ │AI Assist │
-              └─────┬─────┘ └────┬────┘ └────┬────┘ └──────────┘
-           ┌────────┼────────┐   │  ┌────┐   │  ┌─────┐
-           │        │        │   │  │    │   │  │     │
-       ┌───┴───┐┌───┴───┐┌──┴──┐│  │    │   │  │     │
-       │Frontend││Backend││ QA  ││  │    │   │  │     │
-       │  Eng   ││  Eng  ││     ││  │    │   │  │     │
-       └───────┘└───────┘└─────┘│  │    │   │  │     │
-                          ┌─────┴──┴┐┌──┴───┴┐┌┴─────┴┐
-                          │Researcher││ SDR   ││  AE   │
-                          │& Writer  ││Outbnd ││Closer │
-                          └─────────┘└───────┘└───────┘
-```
+Or wire one inline:
 
 ```typescript
-// One call creates the full engineering team
-await createTeam(db, "engineering", { tenantId });
-// → CTO (reports to: none)
-// → Senior Engineer (reports to: CTO)
-// → Engineer (reports to: CTO)
-// → QA Engineer (reports to: CTO)
+import { BoringOS } from "@boringos/core";
+import { z } from "@boringos/module-sdk";
+import type { Module } from "@boringos/module-sdk";
 
-// CEO delegates "Build the MVP" → CTO breaks it down →
-// Engineers execute → QA validates → tasks complete.
+const helloModule: Module = {
+  id: "hello",
+  name: "Hello",
+  version: "0.1.0",
+  description: "Demo module",
+  skills: [{ id: "hello", source: "module",
+    body: "Use `hello.greet` to say hi to someone." }],
+  tools: [{
+    name: "greet",
+    description: "Greet someone by name",
+    inputs: z.object({ name: z.string() }),
+    async handler({ name }) {
+      return { ok: true, result: { message: `Hello, ${name}!` } };
+    },
+  }],
+};
+
+const app = new BoringOS({});
+app.module(helloModule);
+await app.listen(3000);
 ```
 
-**Delegation flows down.** CEO assigns a goal to CTO. CTO creates subtasks, assigns to engineers. Engineers spawn CLI runtimes (Claude, Codex, Gemini), write code, run tests, post updates.
+Embedded Postgres boots automatically, the v2 tool dispatcher
+mounts at `/api/tools/*`, and the agent's prompt now includes
+the `hello` skill plus the `hello.greet` tool.
 
-**Escalation flows up.** Stuck? Agent escalates to its manager. Need approval? Humans approve via dashboard. Done? Tasks close, memory persists, next goal begins.
+For the step-by-step guide, see
+[`BUILD-A-MODULE.md`](BUILD-A-MODULE.md).
+
+---
+
+## What's in the box
+
+### Built-in Modules
+
+| Module | Tools | Notes |
+|---|---|---|
+| `framework` | `tasks.{read,create,patch}`, `comments.post`, `work_products.record`, `runs.report_cost`, `agents.{create,list,wake}`, `inbox.{read,update}` | The agent's universal callback API |
+| `memory` | `memory.{remember,recall,prime,forget}` | Long-term memory (Hebbs or null) |
+| `drive` | `drive.{read,write,write_binary,list,delete,stat,move}` | File storage with path-prefix ACL |
+| `inbox` | `inbox.{list,archive,create_task}` | Inbound message queue |
+| `triage` | `triage.{next_pending,classify}` | Inbox classification capability |
+| `copilot` | `copilot.start_session` | Per-tenant assistant |
+| `workflow` | `workflow.{run,list,get_run}` | DAG runtime + visual editor |
+
+### Connectors
+
+- `@boringos/connector-google` — Gmail (send, search, read,
+  archive) + Calendar
+- `@boringos/connector-slack` — messages, threads, reactions
+
+### Runtimes
+
+Six pluggable CLI runtimes ship out of the box: Claude Code,
+ChatGPT CLI, Gemini, Ollama, generic command, webhook.
+
+### Persistence + transport
+
+- Embedded Postgres by default; external via `DATABASE_URL`
+- Drizzle ORM
+- Hono HTTP server
+- In-process job queue by default; BullMQ via `app.queue(...)`
+
+---
+
+## How an agent works
+
+```
+wake (comment / routine / event / admin)
+  → coalesce + enqueue
+  → fetch agent + create run row
+  → build prompt: Skills (from registry) + Tools (from registry)
+                  + per-run context (task, comments, session, memory)
+  → spawn CLI subprocess with $BORINGOS_CALLBACK_TOKEN
+  → agent calls POST /api/tools/<name> with bearer JWT
+  → dispatcher: Zod-validate → handler → tool_calls audit row
+  → agent posts result comment + sets status=done
+  → engine auto-rewakes if more todos remain (success only)
+```
+
+Every side effect goes through one URL, validated by one schema,
+audited in one table.
+
+---
+
+## Reference docs
+
+- [`BUILD-A-MODULE.md`](BUILD-A-MODULE.md) — step-by-step guide to
+  shipping your first Module
+- [`MODULES.md`](MODULES.md) — Module manifest spec
+- [`TOOLS.md`](TOOLS.md) — Tool spec, error model, audit, idempotency
+- [`SKILLS.md`](SKILLS.md) — Skill spec, file format, priorities
+- [`CLAUDE.md`](CLAUDE.md) — orientation for contributors
+- [`MIGRATION-V1-TO-V2.md`](MIGRATION-V1-TO-V2.md) — porting v1
+  connectors / apps / plugins
+- [`docs/INDEX.md`](docs/INDEX.md) — full doc navigation
+
+---
 
 ## Packages
 
-| Package | Purpose |
+| Package | Role |
 |---|---|
-| `@boringos/core` | Application host — `BoringOS` class, builder API, HTTP server |
-| `@boringos/agent` | Execution engine — context pipeline, wakeup coalescing, run lifecycle, personas |
-| `@boringos/runtime` | 6 runtime modules + registry + subprocess spawning |
-| `@boringos/memory` | `MemoryProvider` interface + Hebbs provider + null provider |
-| `@boringos/drive` | `StorageBackend` interface + local filesystem implementation |
-| `@boringos/db` | Drizzle schema + embedded Postgres + migration manager |
-| `@boringos/workflow` | DAG workflow engine + block handlers + workflow store |
-| `@boringos/workflow-ui` | React components for visualizing + editing workflows — DAG canvas, block palette, config forms, run-diff view |
-| `@boringos/pipeline` | Pluggable job queue — in-process (default) or BullMQ (opt-in) |
-| `@boringos/connector` | Connector SDK — interfaces, registry, OAuth, EventBus, test harness |
-| `@boringos/connector-slack` | Slack reference connector (messages, threads, reactions) |
-| `@boringos/connector-google` | Google Workspace connector — Gmail (`list_emails`, `read_email`, `send_email`, `reply_email`, `archive_email`, `modify_email`, `ensure_label`, `list_history`) and Calendar |
-| `@boringos/shell` | Hebbs shell SPA — Inbox / Tasks / Agents / Connectors / Settings screens |
-| `@boringos/ui` | Typed API client + headless React hooks (TanStack Query) |
-| `create-boringos` | CLI generator — `npx create-boringos my-app` |
-| `@boringos/shared` | Base types, constants, Hook utility, ID generation |
+| `@boringos/core` | `BoringOS` host, builder API, HTTP routes, Module registries |
+| `@boringos/module-sdk` | v2 Module / Tool / Skill type SDK (the spec) |
+| `@boringos/agent` | Execution engine, context pipeline, v2 registries + dispatcher |
+| `@boringos/runtime` | 6 CLI runtimes + subprocess spawning |
+| `@boringos/memory` | `MemoryProvider` interface + Hebbs adapter |
+| `@boringos/drive` | `StorageBackend` + `DriveManager` |
+| `@boringos/db` | Drizzle schema + embedded Postgres + migrations |
+| `@boringos/workflow` | DAG runtime |
+| `@boringos/workflow-ui` | React canvas + editor |
+| `@boringos/pipeline` | Job queue (in-process / BullMQ) |
+| `@boringos/connector-google` | Gmail + Calendar Module |
+| `@boringos/connector-slack` | Slack Module |
+| `@boringos/shell` | Browser shell SPA |
+| `@boringos/ui` | Typed API client + React hooks |
+| `create-boringos` | CLI generator |
+| `@boringos/shared` | Base types, constants, utilities |
 
-## Builder API
+---
 
-```typescript
-import { BoringOS, createHebbsMemory } from "@boringos/core";
+## Examples
 
-const app = new BoringOS({
-  database: { url: "postgres://..." },        // or omit for embedded
-  drive: { root: "./data/drive" },             // or omit for default
-  auth: { secret: "your-secret" },             // JWT signing secret
-});
+- [`examples/quickstart/`](examples/quickstart/) — boot, create an
+  agent, assign a task, watch it execute
 
-app.memory(createHebbsMemory({ endpoint: "...", apiKey: "..." }));
-app.connector(slack({ signingSecret: "..." }));         // Slack integration
-app.connector(google({ clientId: "...", clientSecret: "..." })); // Gmail + Calendar
-app.queue(createBullMQQueue({ redis: "redis://..." })); // opt-in BullMQ
-app.runtime(myCustomRuntime);                  // add custom runtimes
-app.contextProvider(myProvider);               // add custom context providers
-app.blockHandler(myWorkflowHandler);           // add custom workflow block handlers
-app.persona("platform-engineer", bundle);      // add custom personas
-app.plugin(myPlugin);                          // register plugins
-app.onTenantCreated(async (db, tenantId) => { ... }); // app-specific tenant setup
-app.beforeStart(async (ctx) => { ... });       // lifecycle hooks
-app.route("/custom", honoApp);                 // mount custom routes
+---
 
-const server = await app.listen(3000);
-```
+## Coming from v1?
+
+v2 is greenfield: connectors, apps, plugins, copilot, and the 6
+hand-written context providers all collapse into the Module shape.
+The agent surface is one URL pattern (`/api/tools/<name>`) instead
+of three.
+
+See [`MIGRATION-V1-TO-V2.md`](MIGRATION-V1-TO-V2.md) for the
+mechanical porting steps.
+
+---
 
 ## Commands
 
 ```bash
-pnpm install           # Install dependencies
-pnpm -r build          # Build all packages
-pnpm -r typecheck      # Typecheck all packages
-pnpm test:run          # Run all tests (126 tests)
+pnpm install
+pnpm -r build
+pnpm -r typecheck
+pnpm test:run
 ```
-
-## Examples
-
-- [`examples/quickstart/`](examples/quickstart/) — Boot, create an agent, assign a task, watch it execute
-- [Personal OS demo](https://github.com/BoringOS-dev/boringos-demos) — Full personal automation system (email triage, calendar, social media, finance, copilot)
-
-## Detailed Docs
-
-- [CLAUDE.md](CLAUDE.md) — Full framework reference (package details, execution pipeline, all interfaces)
-- [BUILD_GUIDELINE.md](BUILD_GUIDELINE.md) — How to build on BoringOS (agents, workflows, UI, copilot, patterns)
-- [boringos.dev](https://boringos.dev) — Website + docs
 
 ## License
 
-MIT
+MIT — see [`LICENSE.md`](LICENSE.md). Contributions welcome; see
+[`CONTRIBUTING.md`](CONTRIBUTING.md) and [`CLA.md`](CLA.md).

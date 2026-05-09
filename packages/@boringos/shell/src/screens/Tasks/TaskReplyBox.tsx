@@ -1,21 +1,23 @@
 // SPDX-License-Identifier: BUSL-1.1
 //
-// Inline reply box on a task. Posting a comment auto-wakes the
-// assigned agent (the framework's auto-wake-on-comment hook in
-// admin-routes.ts already does this). Slash commands let the user
-// drive the task while replying:
+// Task reply UX — driven by the next_actor state machine.
 //
-//   /done                 — mark task done after posting
-//   /reopen               — flip status back to todo after posting
-//   /assign @<agent name> — reassign to that agent and wake them
+//   next_actor='human'  → "Waiting on you" banner + two explicit
+//                          buttons: [Send back to agent] / [Mark done]
+//   next_actor='agent'  → "Agent working" banner + single [Send note]
+//                          button (queues a comment for the agent's
+//                          next wake; does NOT force-wake mid-run)
+//   next_actor=null     → task is done/cancelled — read-only.
 //
-// Mentions:
-//   @<agent name>         — auto-assign this comment's wake to that
-//                           agent if no slash command set an explicit
-//                           assignment. Surfaces as plain @-tag in
-//                           the rendered markdown.
+// The buttons map 1:1 to backend endpoints:
+//   POST /api/admin/tasks/:id/send-to-agent   { comment? }
+//   POST /api/admin/tasks/:id/mark-done       { comment? }
+//   POST /api/admin/tasks/:id/comments        { body }   (note while agent works)
+//
+// We dropped the slash-command auto-wake path. State transitions are
+// always explicit button clicks — no inferred intent.
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useClient } from "@boringos/ui";
 import type { Task, Agent } from "@boringos/ui";
 
@@ -25,82 +27,60 @@ export interface TaskReplyBoxProps {
   onPosted: () => void;
 }
 
-interface ParsedCommand {
-  /** Body to post as the comment, with slash directives stripped. */
-  body: string;
-  /** Final status to set (or leave alone if undefined). */
-  setStatus?: "done" | "todo";
-  /** Reassign to this agent id (resolved from @-mention) before waking. */
-  assignAgentId?: string;
-}
-
-/** Match an agent name against a token (case-insensitive, allow `_` / spaces). */
-function findAgentByMention(agents: Agent[], mention: string): Agent | null {
-  const norm = mention.toLowerCase().replace(/[_\s-]+/g, "");
-  for (const a of agents) {
-    const name = (a.name ?? "").toLowerCase().replace(/[_\s-]+/g, "");
-    if (name && name === norm) return a;
-    if (name && name.startsWith(norm)) return a;
-  }
-  return null;
-}
-
-function parseCommand(raw: string, agents: Agent[]): ParsedCommand {
-  let body = raw;
-  let setStatus: "done" | "todo" | undefined;
-  let assignAgentId: string | undefined;
-
-  // /done at the start, end, or alone on a line.
-  if (/(^|\n)\s*\/done\s*($|\n)/i.test(body)) {
-    setStatus = "done";
-    body = body.replace(/(^|\n)\s*\/done\s*($|\n)/gi, "$1$2").trim();
-  }
-  if (/(^|\n)\s*\/reopen\s*($|\n)/i.test(body)) {
-    setStatus = "todo";
-    body = body.replace(/(^|\n)\s*\/reopen\s*($|\n)/gi, "$1$2").trim();
-  }
-
-  // /assign @<name>
-  const assignMatch = body.match(/(^|\n)\s*\/assign\s+@(\S+)\s*($|\n)/i);
-  if (assignMatch) {
-    const agent = findAgentByMention(agents, assignMatch[2]!);
-    if (agent) {
-      assignAgentId = agent.id;
-    }
-    body = body.replace(/(^|\n)\s*\/assign\s+@\S+\s*($|\n)/gi, "$1$2").trim();
-  }
-
-  return { body, setStatus, assignAgentId };
-}
-
-export function TaskReplyBox({ task, agents, onPosted }: TaskReplyBoxProps) {
+export function TaskReplyBox({ task, onPosted }: TaskReplyBoxProps) {
   const client = useClient();
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const parsed = useMemo(() => parseCommand(body, agents), [body, agents]);
-  const hasContent = parsed.body.trim().length > 0;
-  const willChangeStatus = parsed.setStatus && parsed.setStatus !== task.status;
-  const willReassign = parsed.assignAgentId && parsed.assignAgentId !== task.assigneeAgentId;
+  const isDone = task.status === "done" || task.status === "cancelled";
+  const waitingOnUser = !isDone && task.nextActor === "human";
+  const agentWorking = !isDone && task.nextActor === "agent";
 
-  const submit = async () => {
-    if (!hasContent && !willChangeStatus && !willReassign) return;
+  if (isDone) {
+    return (
+      <section data-testid="task-reply-box">
+        <div className="rounded-lg border border-border bg-bg px-3 py-2 text-xs text-muted">
+          This task is closed. Reopen it from the action bar to continue the conversation.
+        </div>
+      </section>
+    );
+  }
+
+  const sendToAgent = async () => {
     setError(null);
     setBusy(true);
     try {
-      // 1) Reassign first so the wake-on-comment fires the right agent.
-      if (parsed.assignAgentId) {
-        await client.assignTask(task.id, parsed.assignAgentId, false);
-      }
-      // 2) Post the comment (auto-wakes the assignee on the server).
-      if (hasContent) {
-        await client.postComment(task.id, { body: parsed.body });
-      }
-      // 3) Status change last so the row reflects the latest state.
-      if (parsed.setStatus && parsed.setStatus !== task.status) {
-        await client.updateTask(task.id, { status: parsed.setStatus });
-      }
+      await client.sendTaskToAgent(task.id, body.trim() || undefined);
+      setBody("");
+      onPosted();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const markDone = async () => {
+    setError(null);
+    setBusy(true);
+    try {
+      await client.markTaskDone(task.id, body.trim() || undefined);
+      setBody("");
+      onPosted();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const sendNote = async () => {
+    if (!body.trim()) return;
+    setError(null);
+    setBusy(true);
+    try {
+      await client.postComment(task.id, { body });
       setBody("");
       onPosted();
     } catch (err) {
@@ -113,48 +93,76 @@ export function TaskReplyBox({ task, agents, onPosted }: TaskReplyBoxProps) {
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       e.preventDefault();
-      void submit();
+      if (waitingOnUser) void sendToAgent();
+      else void sendNote();
     }
   };
 
+  // Banner copy is intentionally verbatim per the design spec — no
+  // creative synonyms. Predictable language matters more than clever
+  // phrasing.
+  const banner = waitingOnUser ? (
+    <div className="rounded-t-lg bg-amber-50 border-b border-amber-200 px-3 py-2 text-xs font-medium text-amber-900">
+      Waiting on you
+    </div>
+  ) : agentWorking ? (
+    <div className="rounded-t-lg bg-accent-tint border-b border-accent px-3 py-2 text-xs font-medium text-accent">
+      Agent working — your note will be queued for the next pass
+    </div>
+  ) : null;
+
+  const placeholder = waitingOnUser
+    ? "Write a reply, then choose Send back to agent or Mark done…  (⌘+Enter = send to agent)"
+    : "Add a note for the agent to see on its next wake…  (⌘+Enter = send)";
+
+  const hasContent = body.trim().length > 0;
+
   return (
     <section data-testid="task-reply-box">
-      <div className="rounded-lg border border-slate-200 bg-white">
+      <div className="rounded-lg border border-border bg-white">
+        {banner}
         <textarea
           value={body}
           onChange={(e) => setBody(e.target.value)}
           onKeyDown={onKeyDown}
           disabled={busy}
           rows={3}
-          placeholder="Reply…  (markdown supported · /done · /assign @agent · ⌘+Enter to send)"
-          className="w-full text-sm px-3 py-2.5 rounded-t-lg focus:outline-none resize-y font-sans"
+          placeholder={placeholder}
+          className="w-full text-sm px-3 py-2.5 focus:outline-none resize-y font-sans"
         />
-        <div className="flex items-center justify-between gap-2 px-2 py-1.5 border-t border-slate-100 bg-slate-50/50 rounded-b-lg">
-          <div className="text-[11px] text-slate-500 flex items-center gap-2">
-            {willReassign && (
-              <span className="text-blue-700">
-                ↻ Reassign to {agents.find((a) => a.id === parsed.assignAgentId)?.name}
-              </span>
-            )}
-            {willChangeStatus && (
-              <span className={parsed.setStatus === "done" ? "text-emerald-700" : "text-slate-700"}>
-                ✓ Mark {parsed.setStatus}
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            {error && (
-              <span className="text-[11px] text-rose-600 max-w-[200px] truncate">{error}</span>
-            )}
+        <div className="flex items-center justify-end gap-2 px-2 py-1.5 border-t border-border-subtle bg-bg/50 rounded-b-lg">
+          {error && (
+            <span className="text-[11px] text-rose-600 max-w-[200px] truncate">{error}</span>
+          )}
+          {waitingOnUser ? (
+            <>
+              <button
+                type="button"
+                onClick={() => void markDone()}
+                disabled={busy}
+                className="text-xs font-medium px-3 py-1.5 rounded-md bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-border"
+              >
+                {busy ? "…" : "Mark done"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void sendToAgent()}
+                disabled={busy}
+                className="text-xs font-medium px-3 py-1.5 rounded-md bg-accent text-white hover:bg-accent-light disabled:bg-border"
+              >
+                {busy ? "…" : "Send back to agent"}
+              </button>
+            </>
+          ) : (
             <button
               type="button"
-              onClick={() => void submit()}
-              disabled={busy || (!hasContent && !willChangeStatus && !willReassign)}
-              className="text-xs font-medium px-3 py-1.5 rounded-md bg-slate-900 text-white hover:bg-slate-800 disabled:bg-slate-300"
+              onClick={() => void sendNote()}
+              disabled={busy || !hasContent}
+              className="text-xs font-medium px-3 py-1.5 rounded-md bg-accent text-white hover:bg-accent-light disabled:bg-border"
             >
-              {busy ? "Posting…" : "Reply"}
+              {busy ? "Sending…" : "Send note"}
             </button>
-          </div>
+          )}
         </div>
       </div>
     </section>

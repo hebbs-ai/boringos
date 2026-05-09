@@ -10,6 +10,7 @@ import { useAuth } from "../../auth/AuthProvider.js";
 import { ScreenBody, ScreenHeader } from "../_shared.js";
 import { Browse } from "./Browse.js";
 import { Installed } from "./Installed.js";
+import { Modules } from "./Modules.js";
 import { Updates } from "./Updates.js";
 import { InstallFromUrl } from "./InstallFromUrl.js";
 import type { InstallApiOptions } from "./installApi.js";
@@ -17,6 +18,7 @@ import type { InstallApiOptions } from "./installApi.js";
 const TABS = [
   { id: "browse", label: "Browse" },
   { id: "installed", label: "Installed" },
+  { id: "modules", label: "Modules" },
   { id: "updates", label: "Updates" },
   { id: "install-from-url", label: "Install from URL" },
 ] as const;
@@ -40,7 +42,7 @@ export function Apps() {
         title="Apps"
         subtitle="Browse, install, and manage apps for your tenant"
       />
-      <div className="px-8 border-b border-slate-100">
+      <div className="px-8 border-b border-border-subtle">
         <div className="flex items-center gap-1">
           {TABS.map((t) => (
             <button
@@ -49,8 +51,8 @@ export function Apps() {
               onClick={() => setTab(t.id)}
               className={`px-3 py-2 text-sm border-b-2 -mb-px ${
                 tab === t.id
-                  ? "border-blue-600 text-slate-900 font-medium"
-                  : "border-transparent text-slate-500 hover:text-slate-900"
+                  ? "border-accent text-text font-medium"
+                  : "border-transparent text-muted hover:text-text"
               }`}
             >
               {t.label}
@@ -61,6 +63,7 @@ export function Apps() {
       <ScreenBody>
         {tab === "browse" && <Browse api={apiOptions} />}
         {tab === "installed" && <Installed api={apiOptions} />}
+        {tab === "modules" && <Modules />}
         {tab === "updates" && <Updates />}
         {tab === "install-from-url" && <InstallFromUrl api={apiOptions} />}
       </ScreenBody>

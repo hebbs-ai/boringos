@@ -9,7 +9,7 @@ const STATUS_BADGE: Record<NormalizedStatus, string> = {
   connected: "bg-emerald-50 text-emerald-700 ring-emerald-200",
   expired: "bg-amber-50 text-amber-800 ring-amber-200",
   error: "bg-rose-50 text-rose-700 ring-rose-200",
-  not_connected: "bg-slate-50 text-slate-500 ring-slate-200",
+  not_connected: "bg-bg text-muted ring-border",
 };
 
 export interface ConnectorCardProps {
@@ -30,15 +30,15 @@ export function ConnectorCard({
       data-testid="connector-card"
       data-kind={vm.kind}
       data-status={vm.status}
-      className="rounded-lg border border-slate-200 bg-white p-4 flex items-start gap-4"
+      className="rounded-lg border border-border bg-white p-4 flex items-start gap-4"
     >
-      <div className="w-10 h-10 rounded-md bg-slate-100 text-slate-600 flex items-center justify-center text-sm font-semibold shrink-0">
+      <div className="w-10 h-10 rounded-md bg-bg-warm text-muted-strong flex items-center justify-center text-sm font-semibold shrink-0">
         {vm.name.charAt(0).toUpperCase()}
       </div>
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <h3 className="text-sm font-medium text-slate-900 truncate">
+          <h3 className="text-sm font-medium text-text truncate">
             {vm.name}
           </h3>
           <span
@@ -48,12 +48,12 @@ export function ConnectorCard({
           </span>
         </div>
         {vm.description && (
-          <p className="text-xs text-slate-500 mt-0.5 truncate">
+          <p className="text-xs text-muted mt-0.5 truncate">
             {vm.description}
           </p>
         )}
         {vm.lastSyncLabel && (
-          <p className="text-[11px] text-slate-400 mt-1">
+          <p className="text-[11px] text-muted mt-1">
             Last sync {vm.lastSyncLabel}
           </p>
         )}
@@ -70,7 +70,7 @@ export function ConnectorCard({
                 ? `Connect ${vm.name}`
                 : `${vm.name} does not support OAuth`
             }
-            className="text-xs font-medium px-3 py-1.5 rounded-md bg-slate-900 text-white hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-400"
+            className="text-xs font-medium px-3 py-1.5 rounded-md bg-accent text-white hover:bg-accent-light disabled:bg-border-subtle disabled:text-muted"
           >
             Add
           </button>
@@ -90,7 +90,7 @@ export function ConnectorCard({
           <button
             type="button"
             onClick={() => onDisconnect(vm.kind)}
-            className="text-xs font-medium px-3 py-1.5 rounded-md text-slate-600 hover:bg-slate-100"
+            className="text-xs font-medium px-3 py-1.5 rounded-md text-muted-strong hover:bg-bg-warm"
           >
             Disconnect
           </button>

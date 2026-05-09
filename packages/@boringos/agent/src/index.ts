@@ -25,19 +25,12 @@ export {
   headerProvider,
   personaProvider,
   createTenantGuidelinesProvider,
-  createDriveSkillProvider,
-  memorySkillProvider,
   agentInstructionsProvider,
-  protocolProvider,
-  approvalsSkillProvider,
   sessionProvider,
   createTaskProvider,
   createCommentsProvider,
   memoryContextProvider,
-  createApiCatalogProvider,
-  chiefOfStaffProvider,
 } from "./providers/index.js";
-export type { ApiCatalogEntry, AgentDocs } from "./providers/index.js";
 
 export { signCallbackToken, verifyCallbackToken } from "./jwt.js";
 export type { CallbackTokenClaims } from "./jwt.js";
@@ -58,3 +51,34 @@ export { findDelegateForTask, escalateToManager, createHandoffTask, validateRepa
 export type { DelegateQuery } from "./hierarchy.js";
 
 export { createHierarchyProvider } from "./providers/hierarchy.js";
+
+// v2 (Skills + Tools + Modules) — the only mode now.
+export {
+  createToolRegistry,
+  createSkillRegistry,
+  createModuleRegistry,
+  dispatch,
+  invoke,
+  createSkillsProvider,
+  createToolCatalogProvider,
+  createInstallManager,
+  createSettingRegistry,
+} from "./v2/index.js";
+export type {
+  ToolRegistry,
+  RegisteredTool,
+  SkillRegistry,
+  RegisteredSkill,
+  ModuleRegistry,
+  ModuleRegistryDeps,
+  DispatchResult,
+  DispatchDeps,
+  DispatchOptions,
+  SkillsProviderDeps,
+  ToolCatalogProviderDeps,
+  InstallManager,
+  InstallManagerDeps,
+  InstallResult,
+  InstalledRow,
+  SettingRegistry,
+} from "./v2/index.js";

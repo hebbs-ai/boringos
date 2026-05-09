@@ -1,5 +1,29 @@
 # Blocker — Admin settings UI for routines, workflows, and operational controls
 
+> **Status (2026-05-09): mostly delivered.** This doc was the v1 plan
+> for surfacing every operational lever in the shell. Most of it
+> shipped. Use this header table to find where each section lives now;
+> the residual is tracked in [`task_16_shell_information_architecture.md`](task_16_shell_information_architecture.md)
+> and [`task_17_tenant_settings_manifest.md`](task_17_tenant_settings_manifest.md).
+>
+> | Section | Status | Lives in |
+> |---|---|---|
+> | 1. Routines | ✅ Done | `packages/@boringos/shell/src/screens/Settings/RoutinesPanel.tsx` (CRUD + cron + run-now) — slated to move out of Settings into top-level under the new EXTEND group, see task_16 |
+> | 2. Workflows | ✅ Done | `packages/@boringos/shell/src/screens/Workflows/` — full Canvas/Editor/Palette/Inspector/RunDrawer/SSE built locally |
+> | 3. Budgets | ✅ Done | `packages/@boringos/shell/src/screens/Settings/BudgetsPanel.tsx` (policies + incidents) — also moves out of Settings |
+> | 4. Agents (operational) | ✅ Done | Global pause: `Settings/AgentsPanel.tsx`. Per-agent surface (instructions, skills, runs, hierarchy, pause/wake) shipped via [`task_15_agents_screen_polish.md`](task_15_agents_screen_polish.md) |
+> | 5. Connectors (extended) | ✅ Done | `screens/Connectors/` — Reconnect, lastSync, scope display, disconnect |
+> | 6. Tenant settings manifest (`app.setting()`) | ⏳ Open | Tracked in [`task_17_tenant_settings_manifest.md`](task_17_tenant_settings_manifest.md) — SDK + schema-driven inputs |
+> | 7. Team | ✅ Done | `screens/Team/` (built under task_16 phase 2) |
+> | Architecture: admin-route gate | ✅ Done | `<RequireAdmin>` component in `auth/RequireAdmin.tsx`, wraps admin routes in `App.tsx` (task_16 phase 1) |
+> | Architecture: Realtime SSE on routines/workflows | ⏳ Partial | Workflows screen has it; routines list still polls. Tracked in `task_15_agents_screen_polish.md` §8 |
+>
+> **The original plan below is preserved unchanged for historical
+> context** — useful to read alongside the implementations to see
+> which design choices held up.
+
+---
+
 ## Why now
 
 Every operational lever in BoringOS today is reachable only via API

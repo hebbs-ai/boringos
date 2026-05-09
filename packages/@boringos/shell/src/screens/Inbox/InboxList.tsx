@@ -52,7 +52,7 @@ export function InboxList({ threads, isLoading, status, selectedId, bulkSelected
   }
 
   return (
-    <ul className="overflow-auto divide-y divide-slate-100">
+    <ul className="overflow-auto divide-y divide-border-subtle">
       {threads.map((thread) => {
         const item = thread.latest;
         const threadCount = thread.items.length;
@@ -79,16 +79,16 @@ export function InboxList({ threads, isLoading, status, selectedId, bulkSelected
             }
             className={`px-4 py-3 cursor-pointer border-l-2 ${
               inBulk
-                ? "bg-blue-100/80 border-blue-600"
+                ? "bg-accent-tint/80 border-accent"
                 : selected
-                  ? "bg-blue-50/60 border-blue-500"
-                  : "border-transparent hover:bg-slate-50"
+                  ? "bg-accent-tint/60 border-accent"
+                  : "border-transparent hover:bg-bg"
             }`}
           >
             <div className="flex items-start gap-2">
               <span
                 className={`mt-1.5 w-1.5 h-1.5 rounded-full shrink-0 ${
-                  unread ? "bg-blue-500" : "bg-transparent"
+                  unread ? "bg-accent" : "bg-transparent"
                 }`}
                 aria-hidden
               />
@@ -96,29 +96,29 @@ export function InboxList({ threads, isLoading, status, selectedId, bulkSelected
                 <div className="flex items-baseline justify-between gap-2">
                   <span
                     className={`text-sm truncate ${
-                      unread ? "font-semibold text-slate-900" : "text-slate-700"
+                      unread ? "font-semibold text-text" : "text-text-secondary"
                     }`}
                   >
                     {parseSenderName(item.from)}
                     {threadCount > 1 && (
-                      <span className="ml-1 text-[10px] text-slate-400 font-normal tabular-nums">
+                      <span className="ml-1 text-[10px] text-muted font-normal tabular-nums">
                         ({threadCount})
                       </span>
                     )}
                   </span>
-                  <span className="text-[10px] text-slate-400 shrink-0 tabular-nums">
+                  <span className="text-[10px] text-muted shrink-0 tabular-nums">
                     {formatRelativeTime(item.createdAt, now)}
                   </span>
                 </div>
                 <div
                   className={`text-xs truncate mt-0.5 ${
-                    unread ? "text-slate-800" : "text-slate-600"
+                    unread ? "text-text" : "text-muted-strong"
                   }`}
                 >
                   {item.subject || "(no subject)"}
                 </div>
                 {item.body && (
-                  <p className="text-[11px] text-slate-500 truncate mt-1">
+                  <p className="text-[11px] text-muted truncate mt-1">
                     {snippetFrom(item.body)}
                   </p>
                 )}
@@ -136,7 +136,7 @@ export function InboxList({ threads, isLoading, status, selectedId, bulkSelected
                   return (
                     <div className="mt-1.5 flex items-center gap-1 text-[10px] text-emerald-700">
                       <span className="font-medium">↩ Replied</span>
-                      <span className="text-slate-400">
+                      <span className="text-muted">
                         {formatRelativeTime(sentReply.sentAt, now)}
                       </span>
                     </div>
@@ -151,7 +151,7 @@ export function InboxList({ threads, isLoading, status, selectedId, bulkSelected
                   return (
                     <div className="mt-1.5 flex items-center gap-1 text-[10px] text-violet-700">
                       <span className="font-medium">🗓 Meeting</span>
-                      <span className="text-slate-500 tabular-nums">
+                      <span className="text-muted tabular-nums">
                         {startsAt.toLocaleDateString(undefined, { month: "short", day: "numeric" })},{" "}
                         {startsAt.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
                       </span>
@@ -171,7 +171,7 @@ export function InboxList({ threads, isLoading, status, selectedId, bulkSelected
                     )}
                     {triage && tier && (
                       <span
-                        className="flex items-center gap-1 text-[10px] text-slate-500 tabular-nums"
+                        className="flex items-center gap-1 text-[10px] text-muted tabular-nums"
                         title={`Score ${triage.score} — ${triage.rationale || ""}`}
                       >
                         <span className={`w-1.5 h-1.5 rounded-full ${scoreDotClass(tier)}`} />
@@ -180,7 +180,7 @@ export function InboxList({ threads, isLoading, status, selectedId, bulkSelected
                     )}
                     {drafts > 0 && (
                       <span
-                        className="text-[10px] text-slate-500 flex items-center gap-0.5"
+                        className="text-[10px] text-muted flex items-center gap-0.5"
                         title={`${drafts} reply draft${drafts === 1 ? "" : "s"} ready`}
                       >
                         ✏ {drafts}

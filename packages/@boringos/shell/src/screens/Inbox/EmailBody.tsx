@@ -172,7 +172,7 @@ export function EmailBody({ html, text }: EmailBodyProps) {
   }, [iframeDoc]);
 
   if (!hasHtml && !hasText) {
-    return <p className="text-sm text-slate-400 italic">No body content.</p>;
+    return <p className="text-sm text-muted italic">No body content.</p>;
   }
 
   if (!hasHtml || showPlain) {
@@ -182,12 +182,12 @@ export function EmailBody({ html, text }: EmailBodyProps) {
           <button
             type="button"
             onClick={() => setShowPlain(false)}
-            className="mb-2 text-[11px] text-slate-500 hover:text-slate-900"
+            className="mb-2 text-[11px] text-muted hover:text-text"
           >
             ← Switch to rich view
           </button>
         )}
-        <pre className="text-sm text-slate-800 whitespace-pre-wrap font-sans leading-relaxed">
+        <pre className="text-sm text-text whitespace-pre-wrap font-sans leading-relaxed">
           {text ?? ""}
         </pre>
       </div>
@@ -201,7 +201,7 @@ export function EmailBody({ html, text }: EmailBodyProps) {
           <button
             type="button"
             onClick={() => setShowImages(true)}
-            className="text-blue-700 hover:text-blue-900"
+            className="text-accent hover:text-accent"
           >
             Show {sanitized.blockedImageCount} image
             {sanitized.blockedImageCount === 1 ? "" : "s"}
@@ -211,7 +211,7 @@ export function EmailBody({ html, text }: EmailBodyProps) {
           <button
             type="button"
             onClick={() => setShowPlain(true)}
-            className="text-slate-500 hover:text-slate-900"
+            className="text-muted hover:text-text"
           >
             Plain text
           </button>

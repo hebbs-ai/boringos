@@ -152,48 +152,49 @@ describe("admin API: full CRUD flow", () => {
   }, 30000);
 });
 
+// Approvals are now represented as tasks with originKind: "agent_action"
+// See docs/blockers/done/task_06_collapse_approvals_into_tasks.md
 describe("admin API: approvals", () => {
-  it("list, approve, reject approvals", async () => {
+  it("agent_action tasks represent approvals pending decision", async () => {
     const server = await bootServer();
 
     try {
       const { generateId } = await import("@boringos/shared");
-      const { tenants, approvals } = await import("@boringos/db");
+      const { tenants, tasks } = await import("@boringos/db");
       const db = server.context.db as import("@boringos/db").Db;
 
       const tenantId = generateId();
       await db.insert(tenants).values({ id: tenantId, name: "Approval Test", slug: "approval-test" });
 
-      // Insert an approval directly
+      // Create an approval task (originKind: "agent_action" with metadata.approval)
       const approvalId = generateId();
-      await db.insert(approvals).values({
+      await db.insert(tasks).values({
         id: approvalId,
         tenantId,
-        type: "deploy",
-        status: "pending",
-        payload: { message: "Deploy to production?" },
+        title: "Approve deployment",
+        originKind: "agent_action",
+        status: "todo",
+        priority: "high",
+        metadata: {
+          approval: {
+            message: "Deploy to production?",
+          },
+        },
       });
 
       const h = adminHeaders(tenantId);
 
-      // List pending
-      const listRes = await fetch(`${server.url}/api/admin/approvals`, { headers: h });
-      const listBody = await listRes.json() as { approvals: Array<{ id: string }> };
-      expect(listBody.approvals).toHaveLength(1);
+      // List pending (filter by originKind: "agent_action")
+      const listRes = await fetch(`${server.url}/api/admin/tasks`, { headers: h });
+      const listBody = await listRes.json() as { tasks: Array<{ id: string; originKind: string }> };
+      const approvalTasks = listBody.tasks.filter((t) => t.originKind === "agent_action");
+      expect(approvalTasks.length).toBeGreaterThan(0);
 
-      // Approve
-      const approveRes = await fetch(`${server.url}/api/admin/approvals/${approvalId}/approve`, {
-        method: "POST",
-        headers: h,
-        body: JSON.stringify({ note: "Ship it" }),
-      });
-      expect(approveRes.status).toBe(200);
-
-      // Verify approved
-      const detailRes = await fetch(`${server.url}/api/admin/approvals/${approvalId}`, { headers: h });
-      const detail = await detailRes.json() as { status: string; decisionNote: string };
-      expect(detail.status).toBe("approved");
-      expect(detail.decisionNote).toBe("Ship it");
+      // Verify task can be viewed
+      const detailRes = await fetch(`${server.url}/api/admin/tasks/${approvalId}`, { headers: h });
+      expect(detailRes.status).toBe(200);
+      const detail = await detailRes.json() as { task: { status: string } };
+      expect(detail.task.status).toBe("todo");
     } finally {
       await server.close();
     }

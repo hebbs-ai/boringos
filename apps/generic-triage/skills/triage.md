@@ -34,6 +34,20 @@ If you find yourself wanting to do anything in the list above, stop. Either the 
 - **newsletter** — bulk content with unsubscribe footers, marketing tone, or list-id headers. Score 0–20.
 - **spam** — phishing markers, bulk + suspicious sender, or no clear value. Score 0–10.
 
+## Header signals
+
+The task description includes a small set of RFC headers above the body. Use them — body alone is unreliable for distinguishing a newsletter from a transactional notification.
+
+| Header | What it means |
+|---|---|
+| `list-unsubscribe` non-empty | Bulk mailer (newsletter or marketing). |
+| `list-id` non-empty | Mailing list — almost always newsletter. |
+| `auto-submitted` set to anything other than `no` | Auto-generated (vacation reply, calendar invite, system notice). |
+| `precedence: bulk` / `list` / `junk` | Bulk mailer; treat like list-unsubscribe. |
+| `reply-to` points to a real person while `from` is `notifications@` / `noreply@` | The vendor wants a reply — flip toward `reply` or `lead` instead of `newsletter`. |
+| `prefilter: automated (...)` | The framework already classified this; you don't need to. Just close the task. |
+| `prefilter: human` | No deterministic signal fired — proceed with normal classification. |
+
 ## Score bands
 
 Generic guidance, not domain-specific:

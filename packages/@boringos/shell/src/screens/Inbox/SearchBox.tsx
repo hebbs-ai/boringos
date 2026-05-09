@@ -36,13 +36,13 @@ export function SearchBox({ value, onChange, placeholder, debounceMs = 200 }: Se
         value={local}
         onChange={(e) => setLocal(e.target.value)}
         placeholder={placeholder ?? "Search subject, sender, body…"}
-        className="w-full text-xs border border-slate-200 bg-white rounded-md px-2.5 py-1.5 pr-7 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+        className="w-full text-xs border border-border bg-white rounded-md px-2.5 py-1.5 pr-7 focus:outline-none focus:ring-2 focus:ring-accent/30"
       />
       {local && (
         <button
           type="button"
           onClick={() => setLocal("")}
-          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 text-xs"
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-text-secondary text-xs"
           title="Clear"
         >
           ×

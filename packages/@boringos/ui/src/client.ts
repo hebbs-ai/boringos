@@ -70,6 +70,108 @@ export interface RuntimeModel {
   label: string;
 }
 
+export interface AgentStats {
+  total: number;
+  runningNow: number;
+  pausedNow: number;
+  idleNow: number;
+  queueDepth: number;
+  errors24h: number;
+  spentTodayCents: number;
+  spentMonthCents: number;
+}
+
+export interface OrgNode {
+  id: string;
+  name: string;
+  role: string;
+  status: string;
+  reports: OrgNode[];
+}
+
+export interface CompanySkill {
+  id: string;
+  tenantId: string;
+  key: string;
+  name: string;
+  description: string | null;
+  sourceType: string;
+  sourceConfig: Record<string, unknown>;
+  trustLevel: string;
+  syncStatus: string;
+  lastSyncAt: string | null;
+  fileInventory: string[] | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface V2ModuleInfo {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  provides: string[];
+  dependsOn: string[];
+  tools: Array<{ name: string; description: string }>;
+  skills: Array<{ id: string; source: string; priority: number }>;
+}
+
+export interface V2InstallInfo {
+  moduleId: string;
+  tenantId: string;
+  installedAt?: string;
+  [k: string]: unknown;
+}
+
+export interface TeamMember {
+  userId: string;
+  name: string;
+  email: string;
+  role: "admin" | "staff" | "member";
+  joinedAt: string;
+}
+
+export interface PendingInvitation {
+  id: string;
+  email: string;
+  role: "admin" | "staff" | "member";
+  code: string;
+  status: string;
+  expiresAt: string;
+  createdAt: string;
+}
+
+export interface SettingDefinition {
+  key: string;
+  label: string;
+  description?: string;
+  type: "string" | "boolean" | "number" | "select" | "longtext" | "secret";
+  options?: Array<{ value: string; label: string }>;
+  default?: string | number | boolean;
+  scope?: "tenant" | "user";
+  editableBy?: "admin" | "staff" | "member";
+  readableBy?: "admin" | "staff" | "member";
+  ownerId?: string;
+  ownerKind?: "app" | "module" | "framework";
+}
+
+export interface SettingsManifest {
+  settings: SettingDefinition[];
+  defaults: Record<string, string>;
+}
+
+export interface ActivityRow {
+  id: string;
+  tenantId: string;
+  action: string;
+  entityType: string;
+  entityId: string;
+  actorType: string | null;
+  actorId: string | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+}
+
 export interface BoringOSClient {
   /**
    * Read-only snapshot of the config used to construct this client.
@@ -86,6 +188,12 @@ export interface BoringOSClient {
   // Settings
   getSettings(): Promise<Record<string, string | null>>;
   updateSettings(data: Record<string, unknown>): Promise<Record<string, string | null>>;
+  /**
+   * Manifest of every SettingDefinition the host has registered (from
+   * installed v2 modules + the framework's own keys). The shell renders
+   * Settings → General from this. See task_17.
+   */
+  getSettingsManifest(): Promise<SettingsManifest>;
 
   // Tenants
   createTenant(data: { name: string; slug: string }): Promise<Record<string, unknown>>;
@@ -94,10 +202,72 @@ export interface BoringOSClient {
   // Agents
   getAgents(): Promise<Agent[]>;
   getAgent(agentId: string): Promise<Agent>;
+  getOrgTree(): Promise<OrgNode[]>;
+  /** Fleet-wide stats for the cabinet header. */
+  getAgentStats(): Promise<AgentStats>;
+  /**
+   * Per-agent daily run counts over a window. Returns
+   * `{ activity: { agentId: { 'YYYY-MM-DD': count } }, days }`.
+   */
+  getAgentActivity(window?: "7d" | "30d"): Promise<{
+    activity: Record<string, Record<string, number>>;
+    days: number;
+  }>;
   createAgent(data: { name: string; role?: string; instructions?: string; runtimeId?: string }): Promise<Agent>;
-  updateAgent(agentId: string, data: { name?: string; role?: string; instructions?: string; status?: string; runtimeId?: string; fallbackRuntimeId?: string }): Promise<Agent>;
+  updateAgent(
+    agentId: string,
+    data: {
+      name?: string;
+      role?: string;
+      title?: string | null;
+      icon?: string | null;
+      instructions?: string | null;
+      status?: string;
+      runtimeId?: string | null;
+      fallbackRuntimeId?: string | null;
+      reportsTo?: string | null;
+      routingTags?: string[];
+      permissions?: Record<string, unknown>;
+      budgetMonthlyCents?: number;
+    },
+  ): Promise<Agent>;
+  patchAgentRoutingTags(
+    agentId: string,
+    data: { add?: string[]; remove?: string[]; set?: string[] },
+  ): Promise<{ agentId: string; routingTags: string[] }>;
   wakeAgent(agentId: string, taskId?: string): Promise<Record<string, unknown>>;
   getAgentRuns(agentId: string): Promise<AgentRun[]>;
+
+  // v2 Modules — registry + per-tenant install state. The shell uses
+  // this to render "skills inherited by every agent in this tenant".
+  getV2Modules(): Promise<V2ModuleInfo[]>;
+  getV2Installs(): Promise<V2InstallInfo[]>;
+
+  // Team + invitations (mounted under /api/auth/*)
+  getTeam(): Promise<TeamMember[]>;
+  updateTeamMemberRole(userId: string, role: string): Promise<void>;
+  removeTeamMember(userId: string): Promise<void>;
+  getInvitations(): Promise<PendingInvitation[]>;
+  createInvitation(data: { email: string; role?: string }): Promise<{ code: string; inviteLink: string }>;
+  deleteInvitation(invitationId: string): Promise<void>;
+
+  // Activity log. Server-side filtering is not yet implemented; the
+  // admin route returns all rows for the tenant. Filters here are
+  // forwarded as query string for forward-compat.
+  getActivity(filters?: { limit?: number }): Promise<ActivityRow[]>;
+
+  // Skills (tenant-curated)
+  getSkills(): Promise<CompanySkill[]>;
+  createSkill(data: {
+    key: string;
+    name: string;
+    description?: string;
+    sourceType: string;
+    sourceConfig?: Record<string, unknown>;
+    trustLevel?: string;
+  }): Promise<CompanySkill>;
+  attachSkill(skillId: string, agentId: string): Promise<void>;
+  detachSkill(skillId: string, agentId: string): Promise<void>;
 
   // Tasks
   getTasks(filters?: { status?: string; assigneeAgentId?: string }): Promise<Task[]>;
@@ -116,6 +286,17 @@ export interface BoringOSClient {
   deleteTask(taskId: string): Promise<void>;
   postComment(taskId: string, data: { body: string }): Promise<{ id: string }>;
   assignTask(taskId: string, agentId: string, wake?: boolean): Promise<Record<string, unknown>>;
+  /**
+   * Human's "Send back to agent" — flips next_actor='agent' and wakes the
+   * assigned agent. Optional comment is posted before the wake so the
+   * agent reads it on next pass.
+   */
+  sendTaskToAgent(taskId: string, comment?: string): Promise<{ ok: true; wakeOutcome: { kind: string } }>;
+  /**
+   * Human's "Mark done" — closes the task. The DB trigger nulls
+   * next_actor automatically. Optional closing comment.
+   */
+  markTaskDone(taskId: string, comment?: string): Promise<{ ok: true }>;
   /**
    * Approve or reject an agent-action task. The optional comment is
    * posted on the PARENT task (where the requesting agent's session
@@ -143,6 +324,27 @@ export interface BoringOSClient {
 
   // Approvals — collapsed into tasks (see decideTask above; tasks
   // with origin_kind="agent_action" carry the decision affordance).
+
+  // Routines
+  getRoutines(): Promise<Record<string, unknown>[]>;
+  createRoutine(data: Record<string, unknown>): Promise<Record<string, unknown>>;
+  updateRoutine(routineId: string, data: Record<string, unknown>): Promise<Record<string, unknown>>;
+  deleteRoutine(routineId: string): Promise<void>;
+  triggerRoutine(routineId: string): Promise<Record<string, unknown>>;
+
+  // Workflows
+  getWorkflows(): Promise<Record<string, unknown>[]>;
+  getWorkflow(workflowId: string): Promise<Record<string, unknown>>;
+  createWorkflow(data: Record<string, unknown>): Promise<Record<string, unknown>>;
+  updateWorkflow(workflowId: string, data: Record<string, unknown>): Promise<Record<string, unknown>>;
+  deleteWorkflow(workflowId: string): Promise<void>;
+  getWorkflowRuns(workflowId: string): Promise<Record<string, unknown>[]>;
+
+  // Budgets
+  getBudgets(): Promise<Record<string, unknown>[]>;
+  createBudget(data: Record<string, unknown>): Promise<Record<string, unknown>>;
+  deleteBudget(budgetId: string): Promise<void>;
+  getBudgetIncidents(): Promise<Record<string, unknown>[]>;
 
   // Cost
   getCosts(): Promise<Record<string, unknown>[]>;
@@ -182,17 +384,10 @@ export function createBoringOSClient(config: BoringOSClientConfig): BoringOSClie
     return h;
   }
 
-  // Use admin API for human callers (apiKey OR session bearer token);
-  // callback API for agent-spawned subprocesses bearing a signed JWT.
-  // Auth shape distinguishes them: agent JWTs are 3-segment dotted
-  // base64url; session tokens are plain UUIDs / opaque strings.
-  function isAgentJwt(t: string): boolean {
-    return /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(t);
-  }
-  const isHumanCaller =
-    Boolean(config.apiKey) ||
-    (Boolean(config.token) && !isAgentJwt(config.token!));
-  const api = isHumanCaller ? "/api/admin" : "/api/agent";
+  // The shell + admin clients only ever talk to /api/admin.
+  // Agent-side callers use /api/tools/* directly (the v2 tool
+  // dispatch surface) and do not go through this client.
+  const api = "/api/admin";
 
   async function get<T>(path: string): Promise<T> {
     const res = await fetch(`${baseUrl}${path}`, { headers: headers() });
@@ -241,6 +436,7 @@ export function createBoringOSClient(config: BoringOSClientConfig): BoringOSClie
       const res = await patch<{ settings: Record<string, string | null> }>(`${api}/settings`, data);
       return res.settings;
     },
+    getSettingsManifest: () => get<SettingsManifest>(`${api}/settings/manifest`),
 
     // Tenants
     createTenant: (data) => post<Record<string, unknown>>(`${api}/tenants`, data),
@@ -252,13 +448,80 @@ export function createBoringOSClient(config: BoringOSClientConfig): BoringOSClie
       return res.agents;
     },
     getAgent: (agentId) => get<Agent>(`${api}/agents/${agentId}`),
+    getOrgTree: async () => {
+      const res = await get<{ tree: OrgNode[] }>(`${api}/agents/org-tree`);
+      return res.tree;
+    },
+    getAgentStats: () => get<AgentStats>(`${api}/agents/stats`),
+    getAgentActivity: (window?: "7d" | "30d") => {
+      const qs = window ? `?window=${window}` : "";
+      return get<{ activity: Record<string, Record<string, number>>; days: number }>(
+        `${api}/agents/activity${qs}`,
+      );
+    },
     createAgent: (data) => post<Agent>(`${api}/agents`, data),
     updateAgent: (agentId, data) => patch<Agent>(`${api}/agents/${agentId}`, data),
+    patchAgentRoutingTags: (agentId, data) =>
+      patch<{ agentId: string; routingTags: string[] }>(
+        `${api}/agents/${agentId}/routing-tags`,
+        data,
+      ),
     wakeAgent: (agentId, taskId?) => post<Record<string, unknown>>(`${api}/agents/${agentId}/wake`, { taskId }),
     getAgentRuns: async (agentId) => {
       const res = await get<{ runs: AgentRun[] }>(`${api}/agents/${agentId}/runs`);
       return res.runs;
     },
+
+    // Team (auth namespace, not admin)
+    getTeam: async () => {
+      const res = await get<{ data: TeamMember[] }>(`/api/auth/team`);
+      return res.data;
+    },
+    updateTeamMemberRole: async (userId, role) => {
+      await patch(`/api/auth/team/${userId}/role`, { role });
+    },
+    removeTeamMember: (userId) => del(`/api/auth/team/${userId}`),
+
+    // Invitations
+    getInvitations: async () => {
+      const res = await get<{ data: PendingInvitation[] }>(`/api/auth/invitations`);
+      return res.data;
+    },
+    createInvitation: (data) =>
+      post<{ code: string; inviteLink: string }>(`/api/auth/invite`, data),
+    deleteInvitation: (invitationId) => del(`/api/auth/invitations/${invitationId}`),
+
+    // Activity log
+    getActivity: async (filters?) => {
+      const params = new URLSearchParams();
+      if (filters?.limit !== undefined) params.set("limit", String(filters.limit));
+      const qs = params.toString();
+      const res = await get<{ activity: ActivityRow[] }>(
+        `${api}/activity${qs ? `?${qs}` : ""}`,
+      );
+      return res.activity;
+    },
+
+    // v2 Modules
+    getV2Modules: async () => {
+      const res = await get<{ modules: V2ModuleInfo[] }>(`${api}/v2/modules`);
+      return res.modules;
+    },
+    getV2Installs: async () => {
+      const res = await get<{ installs: V2InstallInfo[] }>(`${api}/v2/installs`);
+      return res.installs;
+    },
+
+    // Skills
+    getSkills: async () => {
+      const res = await get<{ skills: CompanySkill[] }>(`${api}/skills`);
+      return res.skills;
+    },
+    createSkill: (data) => post<CompanySkill>(`${api}/skills`, data),
+    attachSkill: async (skillId, agentId) => {
+      await post(`${api}/skills/${skillId}/attach/${agentId}`, {});
+    },
+    detachSkill: (skillId, agentId) => del(`${api}/skills/${skillId}/attach/${agentId}`),
 
     // Tasks
     getTasks: async (filters?) => {
@@ -275,6 +538,10 @@ export function createBoringOSClient(config: BoringOSClientConfig): BoringOSClie
     deleteTask: (taskId) => del(`${api}/tasks/${taskId}`),
     postComment: (taskId, data) => post<{ id: string }>(`${api}/tasks/${taskId}/comments`, data),
     assignTask: (taskId, agentId, wake?) => post<Record<string, unknown>>(`${api}/tasks/${taskId}/assign`, { agentId, wake }),
+    sendTaskToAgent: (taskId, comment?) =>
+      post<{ ok: true; wakeOutcome: { kind: string } }>(`${api}/tasks/${taskId}/send-to-agent`, { comment }),
+    markTaskDone: (taskId, comment?) =>
+      post<{ ok: true }>(`${api}/tasks/${taskId}/mark-done`, { comment }),
     decideTask: (taskId, kind, comment) =>
       post<{ ok: true; decision: string; parentWokenForAgentId: string | null }>(
         `${api}/tasks/${taskId}/decision`,
@@ -308,25 +575,71 @@ export function createBoringOSClient(config: BoringOSClientConfig): BoringOSClie
       return res.models;
     },
 
+    // Routines
+    getRoutines: async () => {
+      const res = await get<{ routines: Record<string, unknown>[] }>(`${api}/routines`);
+      return res.routines;
+    },
+    createRoutine: (data) => post<Record<string, unknown>>(`${api}/routines`, data),
+    updateRoutine: (routineId, data) => patch<Record<string, unknown>>(`${api}/routines/${routineId}`, data),
+    deleteRoutine: (routineId) => del(`${api}/routines/${routineId}`),
+    triggerRoutine: (routineId) => post<Record<string, unknown>>(`${api}/routines/${routineId}/trigger`, {}),
+
+    // Workflows
+    getWorkflows: async () => {
+      const res = await get<{ workflows: Record<string, unknown>[] }>(`${api}/workflows`);
+      return res.workflows;
+    },
+    getWorkflow: (workflowId) => get<Record<string, unknown>>(`${api}/workflows/${workflowId}`),
+    createWorkflow: (data) => post<Record<string, unknown>>(`${api}/workflows`, data),
+    updateWorkflow: (workflowId, data) => patch<Record<string, unknown>>(`${api}/workflows/${workflowId}`, data),
+    deleteWorkflow: (workflowId) => del(`${api}/workflows/${workflowId}`),
+    getWorkflowRuns: async (workflowId) => {
+      const res = await get<{ runs: Record<string, unknown>[] }>(`${api}/workflows/${workflowId}/runs`);
+      return res.runs;
+    },
+
+    // Budgets
+    getBudgets: async () => {
+      const res = await get<{ policies: Record<string, unknown>[] }>(`${api}/budgets`);
+      return res.policies;
+    },
+    createBudget: (data) => post<Record<string, unknown>>(`${api}/budgets`, data),
+    deleteBudget: (budgetId) => del(`${api}/budgets/${budgetId}`),
+    getBudgetIncidents: async () => {
+      const res = await get<{ incidents: Record<string, unknown>[] }>(`${api}/budgets/incidents`);
+      return res.incidents;
+    },
+
     // Costs
     getCosts: async () => {
       const res = await get<{ costs: Record<string, unknown>[] }>(`${api}/costs`);
       return res.costs;
     },
     reportCost: async (runId, data) => {
-      await post(`/api/agent/runs/${runId}/cost`, data);
+      // v2: cost reporting goes through the framework module's
+      // tool, called from inside agent runs only.
+      await post(`/api/tools/framework.runs.report_cost`, { runId, ...data });
     },
 
-    // Connectors
+    // Connectors — OAuth + listing only. Action invocation has
+    // moved to /api/tools/<connector>.<action>.
     getConnectors: async () => {
       const res = await get<{ connectors: ConnectorInfo[] }>("/api/connectors/connectors");
       return res.connectors;
     },
-    invokeAction: (kind, action, inputs) =>
-      post<{ success: boolean; data?: Record<string, unknown>; error?: string }>(
-        `/api/connectors/actions/${kind}/${action}`,
-        inputs,
-      ),
+    invokeAction: async (kind, action, inputs) => {
+      const r = await post<{
+        ok: boolean;
+        result?: Record<string, unknown>;
+        error?: { code: string; message: string };
+      }>(`/api/tools/${kind}.${action}`, inputs);
+      // Translate v2 response shape to the legacy v1 shape so
+      // existing consumers don't need to change.
+      return r.ok
+        ? { success: true, data: r.result }
+        : { success: false, error: r.error?.message };
+    },
 
     // Inbox
     getInbox: async (filters) => {

@@ -13,7 +13,7 @@ import { useAuth } from "./AuthProvider.js";
 import { useBrand } from "../branding/BrandProvider.js";
 
 const inputClass =
-  "w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15";
+  "w-full rounded-md border border-border bg-white px-3 py-2 text-sm text-text outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/15";
 
 export function Signup() {
   const { signup } = useAuth();
@@ -52,7 +52,7 @@ export function Signup() {
 
   return (
     <div
-      className="flex min-h-screen items-center justify-center bg-slate-50 bg-cover bg-center"
+      className="flex min-h-screen items-center justify-center bg-bg bg-cover bg-center"
       style={brand.loginBackground ? { backgroundImage: `url(${brand.loginBackground})` } : undefined}
     >
       <div className="w-full max-w-sm">
@@ -64,17 +64,17 @@ export function Signup() {
               className="mx-auto mb-3 h-10 object-contain"
             />
           )}
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+          <h1 className="text-2xl font-bold tracking-tight text-text">
             {brand.productName}
           </h1>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-muted">
             {isInvite ? "Join your team" : "Create your tenant"}
           </p>
         </div>
 
         <form
           onSubmit={handleSubmit}
-          className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm"
+          className="rounded-lg border border-border bg-white p-6 shadow-sm"
         >
           {error && (
             <div className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -83,13 +83,13 @@ export function Signup() {
           )}
 
           {isInvite && (
-            <div className="mb-4 rounded-md bg-blue-50 px-3 py-2 text-sm text-blue-700">
+            <div className="mb-4 rounded-md bg-accent-tint px-3 py-2 text-sm text-accent">
               You've been invited to join a team. Sign up to accept.
             </div>
           )}
 
           <div className="mb-4">
-            <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-400">
+            <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted">
               Name
             </label>
             <input
@@ -103,7 +103,7 @@ export function Signup() {
           </div>
 
           <div className="mb-4">
-            <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-400">
+            <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted">
               Email
             </label>
             <input
@@ -117,7 +117,7 @@ export function Signup() {
           </div>
 
           <div className="mb-4">
-            <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-400">
+            <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted">
               Password
             </label>
             <input
@@ -133,7 +133,7 @@ export function Signup() {
 
           {!isInvite && (
             <div className="mb-4">
-              <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-400">
+              <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-muted">
                 Tenant name
               </label>
               <input
@@ -143,14 +143,14 @@ export function Signup() {
                 className={inputClass}
                 placeholder="Acme Corp"
               />
-              <p className="mt-1 text-xs text-slate-400">Leave blank to use your name.</p>
+              <p className="mt-1 text-xs text-muted">Leave blank to use your name.</p>
             </div>
           )}
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
+            className="w-full rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition hover:bg-accent disabled:opacity-50"
           >
             {loading
               ? "Creating account…"
@@ -159,9 +159,9 @@ export function Signup() {
                 : "Create tenant"}
           </button>
 
-          <p className="mt-4 text-center text-sm text-slate-500">
+          <p className="mt-4 text-center text-sm text-muted">
             Already have an account?{" "}
-            <Link to="/login" className="font-medium text-blue-600 hover:underline">
+            <Link to="/login" className="font-medium text-accent hover:underline">
               Sign in
             </Link>
           </p>

@@ -45,7 +45,7 @@ export function TriageClassificationMenu({
         {current} ▾
       </button>
       {open && (
-        <div className="absolute z-20 top-full left-0 mt-1 w-36 rounded-md bg-white shadow-lg ring-1 ring-slate-200 overflow-hidden">
+        <div className="absolute z-20 top-full left-0 mt-1 w-36 rounded-md bg-white shadow-lg ring-1 ring-border overflow-hidden">
           {CHOICES.map((c) => {
             const isCurrent = c === current;
             return (
@@ -56,7 +56,7 @@ export function TriageClassificationMenu({
                   setOpen(false);
                   if (!isCurrent) onSelect(c);
                 }}
-                className="w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 flex items-center gap-2 disabled:opacity-50"
+                className="w-full text-left px-3 py-1.5 text-xs hover:bg-bg flex items-center gap-2 disabled:opacity-50"
                 disabled={isCurrent}
               >
                 <span
@@ -64,7 +64,7 @@ export function TriageClassificationMenu({
                 >
                   {c}
                 </span>
-                {isCurrent && <span className="text-[10px] text-slate-400">current</span>}
+                {isCurrent && <span className="text-[10px] text-muted">current</span>}
               </button>
             );
           })}

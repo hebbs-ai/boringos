@@ -61,6 +61,7 @@ export type {
   WorkflowTemplate,
   ContextProvider,
   RouteRegistrar,
+  AppSettingDefinition,
 } from "./define-app.js";
 
 export { defineUI } from "./define-ui.js";

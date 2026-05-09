@@ -233,11 +233,11 @@ describe("delegation", () => {
     // Engineer with an unusual skill that'd never match the keyword regex
     await conn.db.insert(agents).values({
       id: engId, tenantId: tid, name: "Dev", role: "engineer", reportsTo: bossId, status: "idle",
-      skills: ["competitor-analysis"],
+      routingTags: ["competitor-analysis"],
     });
     await conn.db.insert(agents).values({
       id: writerId, tenantId: tid, name: "Writer", role: "content-creator", reportsTo: bossId, status: "idle",
-      skills: [],
+      routingTags: [],
     });
 
     // Tier A skill "competitor-analysis" should beat Tier B role regex ("write" → content-creator)
@@ -246,10 +246,10 @@ describe("delegation", () => {
     });
     expect(delegate).toBe(engId);
 
-    // requiredSkill hint also works
+    // requiredTag hint also works
     const delegate2 = await findDelegateForTask(conn.db, bossId, {
       title: "Anything goes",
-      requiredSkill: "competitor-analysis",
+      requiredTag: "competitor-analysis",
     });
     expect(delegate2).toBe(engId);
 
@@ -306,11 +306,11 @@ describe("hierarchy provider", () => {
     await conn.db.update(tenants).set({ rootAgentId: cosId }).where(eq(tenants.id, tid));
 
     const ceo = generateId(); const vp = generateId(); const peer1 = generateId(); const peer2 = generateId(); const ic = generateId();
-    await conn.db.insert(agents).values({ id: ceo, tenantId: tid, name: "CEO", role: "ceo", status: "idle", skills: [], reportsTo: cosId });
-    await conn.db.insert(agents).values({ id: vp, tenantId: tid, name: "VP Sales", role: "vp", reportsTo: ceo, status: "idle", skills: ["deal-coaching"] });
-    await conn.db.insert(agents).values({ id: peer1, tenantId: tid, name: "VP Marketing", role: "vp", reportsTo: ceo, status: "idle", skills: ["campaign-strategy"] });
-    await conn.db.insert(agents).values({ id: peer2, tenantId: tid, name: "VP Product", role: "vp", reportsTo: ceo, status: "paused", skills: ["roadmap"] });
-    await conn.db.insert(agents).values({ id: ic, tenantId: tid, name: "SDR", role: "sdr", reportsTo: vp, status: "idle", skills: ["prospecting"] });
+    await conn.db.insert(agents).values({ id: ceo, tenantId: tid, name: "CEO", role: "ceo", status: "idle", routingTags: [], reportsTo: cosId });
+    await conn.db.insert(agents).values({ id: vp, tenantId: tid, name: "VP Sales", role: "vp", reportsTo: ceo, status: "idle", routingTags: ["deal-coaching"] });
+    await conn.db.insert(agents).values({ id: peer1, tenantId: tid, name: "VP Marketing", role: "vp", reportsTo: ceo, status: "idle", routingTags: ["campaign-strategy"] });
+    await conn.db.insert(agents).values({ id: peer2, tenantId: tid, name: "VP Product", role: "vp", reportsTo: ceo, status: "paused", routingTags: ["roadmap"] });
+    await conn.db.insert(agents).values({ id: ic, tenantId: tid, name: "SDR", role: "sdr", reportsTo: vp, status: "idle", routingTags: ["prospecting"] });
 
     const provider = createHierarchyProvider({ db: conn.db });
     const vpRows = await conn.db.select().from(agents).where((await import("drizzle-orm")).eq(agents.id, vp)).limit(1);

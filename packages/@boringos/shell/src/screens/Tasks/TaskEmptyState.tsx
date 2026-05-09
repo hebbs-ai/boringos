@@ -21,7 +21,7 @@ function NewTaskButton({ onClick }: { onClick?: () => void }) {
     <button
       type="button"
       onClick={onClick}
-      className="text-xs font-medium px-3 py-1.5 rounded-md bg-slate-900 text-white hover:bg-slate-800"
+      className="text-xs font-medium px-3 py-1.5 rounded-md bg-accent text-white hover:bg-accent-light"
     >
       + New task
     </button>
@@ -40,7 +40,7 @@ export function TaskEmptyState({ tab, onNewTask }: TaskEmptyStateProps) {
               <NewTaskButton onClick={onNewTask} />
               <Link
                 to="/copilot"
-                className="text-xs font-medium px-3 py-1.5 rounded-md text-slate-700 hover:bg-slate-100"
+                className="text-xs font-medium px-3 py-1.5 rounded-md text-text-secondary hover:bg-bg-warm"
               >
                 Open Copilot
               </Link>
@@ -71,7 +71,7 @@ export function TaskEmptyState({ tab, onNewTask }: TaskEmptyStateProps) {
           cta={
             <Link
               to="/connectors"
-              className="text-xs font-medium px-3 py-1.5 rounded-md bg-slate-900 text-white hover:bg-slate-800"
+              className="text-xs font-medium px-3 py-1.5 rounded-md bg-accent text-white hover:bg-accent-light"
             >
               Open Connectors
             </Link>

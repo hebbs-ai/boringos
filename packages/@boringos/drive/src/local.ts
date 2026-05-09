@@ -91,25 +91,70 @@ export async function scaffoldDrive(root: string, tenantId: string): Promise<voi
   }
 }
 
-const DRIVE_SKILL = `# Drive — File Organization
+const DRIVE_SKILL = `# Drive — your tenant's persistent storage
 
-## Folder Structure
+Your local shell is your scratchpad — install deps, run scripts,
+generate bytes, scratch files. **Drive is where you publish
+anything someone else needs to see** (the user, the next agent,
+the task UI). Path conventions and ACLs apply only to drive; your
+local workdir is yours alone and disappears when the run ends.
 
-\`\`\`
-{tenantId}/
-├── projects/          # Project-specific files
-├── agents/            # Agent workspace files
-├── tasks/             # Task deliverables organized by identifier
-│   └── {identifier}/  # e.g., tasks/AR-001/
-├── shared/            # Shared resources across agents
-└── inbox/             # Unprocessed uploads
-\`\`\`
+## Path conventions
 
-## Rules
+- \`tasks/<task-id>/...\` — deliverables for this task
+  (the default for relative filenames during a task run)
+- \`shared/...\` — tenant-wide artifacts
+- \`projects/<id>/...\` — project-scoped
+- \`users/<id>/...\` — private to one user (you cannot read or write
+  these as an agent)
+- \`agents/<id>/...\` — your own working directory
 
-1. Task deliverables go in \`tasks/{identifier}/\`
-2. Shared resources go in \`shared/\`
-3. Uploaded files land in \`inbox/\` and get organized by agents
-4. Use descriptive filenames: \`quarterly-report-q2.md\` not \`report.md\`
-5. Prefer markdown for documents, keep binary files in appropriate subdirectories
+When you call \`drive.write\` / \`drive.write_binary\` with a bare
+filename (no prefix) the framework auto-places it under
+\`tasks/<your task id>/\` if you're working on a task, otherwise
+under \`agents/<your id>/\`. Use an explicit prefix when you want
+something different.
+
+## Delivering an artifact to the user
+
+When the user asks for something visual or downloadable (image,
+chart, PDF, CSV, transcript, audio clip):
+
+1. Generate the bytes locally (matplotlib, ffmpeg, pandoc,
+   imagemagick — whatever produces the file).
+2. Persist via drive:
+   - text → \`drive.write({ path, content })\`
+   - binary → \`drive.write_binary({ path, contentBase64 })\`
+3. **Read the response, find \`result.url\`, copy that exact
+   string into your comment.** The shape is always
+   \`{"ok": true, "result": {"path": "...", "bytes": N, "url": "/api/admin/drive/file/..."}}\`.
+   The URL **always** starts with \`/api/admin/drive/file/\` —
+   any other host (\`storage.boringos.dev\`, \`cdn.*\`, S3
+   links) is a fabrication.
+4. Post the comment via \`framework.comments.post({ taskId, body })\`:
+   - images: \`![<alt>](<url>)\` — renders inline.
+   - everything else: \`[<filename>](<url>)\` — renders as a link.
+
+If you call drive tools from a Bash sub-shell, you must **print the
+full response body** before extracting \`result.url\` — the JSON
+is invisible to you otherwise. \`print(json.dumps(body))\` first,
+then read \`body["result"]["url"]\`.
+
+### Do
+- Use descriptive filenames: \`q2-completion-rate.png\`,
+  not \`chart.png\`.
+- One artifact = one drive file = one URL. Don't paste base64 into
+  the comment body.
+- Mention what the artifact is in the comment text, not just the
+  embed.
+
+### Don't
+- **Don't fabricate URLs.** The only valid prefix is
+  \`/api/admin/drive/file/\`. If you didn't see the URL printed
+  back from a tool response in this run, you don't know it.
+- Don't claim you produced an artifact you didn't actually write
+  to drive — verify the upload returned \`{"ok": true}\` first.
+- Don't write giant binaries (>25 MB) — chunk or compress first.
+- Don't write to \`users/<id>/\` paths — those are private to a
+  human user; you'll get a 403.
 `;

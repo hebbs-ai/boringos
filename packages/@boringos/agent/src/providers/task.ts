@@ -22,11 +22,19 @@ export function createTaskProvider(deps: { db: unknown }): ContextProvider {
 
         const parts = [
           `## Task: ${task.identifier ? `${task.identifier}: ` : ""}${task.title}`,
+          `**ID:** ${task.id}`,
         ];
         if (task.description) {
           parts.push("", task.description);
         }
         parts.push("", `**Status:** ${task.status} | **Priority:** ${task.priority}`);
+        // Surface task.metadata so persona rules that gate on flags
+        // (e.g. copilot's `titleAuto` first-reply rename) can see them.
+        // Compact JSON keeps the token cost low.
+        const metaObj = task.metadata as Record<string, unknown> | null;
+        if (metaObj && Object.keys(metaObj).length > 0) {
+          parts.push("", `**Metadata:** ${JSON.stringify(metaObj)}`);
+        }
 
         return parts.join("\n");
       } catch {

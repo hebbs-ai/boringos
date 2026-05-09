@@ -14,11 +14,11 @@ import { EmptyState, ScreenBody, ScreenHeader } from "./_shared.js";
 
 function StatTile({ label, value }: { label: string; value: number | string }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
-      <div className="text-xs uppercase tracking-wide text-slate-400">
+    <div className="rounded-lg border border-border bg-white p-4">
+      <div className="text-xs uppercase tracking-wide text-muted">
         {label}
       </div>
-      <div className="mt-2 text-2xl font-semibold text-slate-900">{value}</div>
+      <div className="mt-2 text-2xl font-semibold text-text">{value}</div>
     </div>
   );
 }
@@ -52,7 +52,7 @@ export function Home() {
 
         {widgets.length > 0 && (
           <div className="mt-8">
-            <h2 className="text-sm font-semibold text-slate-700 mb-3">
+            <h2 className="text-sm font-semibold text-text-secondary mb-3">
               From your apps
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

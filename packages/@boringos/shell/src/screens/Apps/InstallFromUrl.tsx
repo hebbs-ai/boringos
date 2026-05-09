@@ -102,7 +102,7 @@ export function InstallFromUrl({ api, onInstalled }: InstallFromUrlProps = {}) {
 
   return (
     <div className="max-w-xl">
-      <p className="text-sm text-slate-600 mb-4">
+      <p className="text-sm text-muted-strong mb-4">
         Paste a GitHub URL pointing at a repo with a <code>boringos.json</code> at
         its root. Public repos only in v1; private-repo support lands in C3.
       </p>
@@ -113,13 +113,13 @@ export function InstallFromUrl({ api, onInstalled }: InstallFromUrlProps = {}) {
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           placeholder="https://github.com/acme/my-stripe-connector"
-          className="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
+          className="flex-1 rounded-md border border-border px-3 py-2 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent/15"
         />
         <button
           type="button"
           onClick={handleFetch}
           disabled={busy || !url.trim()}
-          className="px-3 py-2 text-sm rounded-md bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50"
+          className="px-3 py-2 text-sm rounded-md bg-accent text-white hover:bg-accent-light disabled:opacity-50"
         >
           {busy ? "Fetching…" : "Fetch"}
         </button>

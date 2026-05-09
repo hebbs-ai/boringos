@@ -170,15 +170,15 @@ export function classificationChipClass(c: Classification): string {
     case "lead":
       return "bg-emerald-50 text-emerald-700 ring-emerald-200";
     case "reply":
-      return "bg-blue-50 text-blue-700 ring-blue-200";
+      return "bg-accent-tint text-accent ring-accent-tint";
     case "internal":
-      return "bg-slate-100 text-slate-600 ring-slate-200";
+      return "bg-bg-warm text-muted-strong ring-border";
     case "newsletter":
       return "bg-amber-50 text-amber-700 ring-amber-200";
     case "spam":
       return "bg-rose-50 text-rose-700 ring-rose-200";
     default:
-      return "bg-slate-50 text-slate-500 ring-slate-200";
+      return "bg-bg text-muted ring-border";
   }
 }
 
@@ -291,6 +291,91 @@ export function buildQuotedReply(args: {
 }
 
 /**
+ * Build the HTML quote block prepended to a reply. Mirrors Gmail's
+ * `<blockquote class="gmail_quote">` convention so the recipient's
+ * client (which is typically Gmail) renders our reply with the same
+ * collapse behaviour they're used to seeing on every other thread.
+ *
+ * `originalBodyHtml` is the sanitized HTML of the message we're
+ * replying to (typically from `metadata.bodyHtml`). When that's
+ * absent we fall back to wrapping `originalBodyPlain` in
+ * `<pre>` — better than nothing, and rare in practice now that
+ * the connector persists `bodyHtml` on every ingest.
+ */
+export function buildHtmlQuotedReply(args: {
+  /** User-authored reply HTML (from the rich editor). */
+  draftHtml: string;
+  originalSender: string | null | undefined;
+  originalDate: string | Date | null | undefined;
+  originalBodyHtml: string | null | undefined;
+  originalBodyPlain: string | null | undefined;
+}): string {
+  const { draftHtml, originalSender, originalDate, originalBodyHtml, originalBodyPlain } = args;
+  const sender = (originalSender ?? "").trim() || "the sender";
+  const dateStr = originalDate ? formatAbsoluteTime(originalDate) : "";
+  const header = dateStr ? `On ${dateStr}, ${sender} wrote:` : `${sender} wrote:`;
+  const safeHeader = escapeHtml(header);
+
+  const inner = originalBodyHtml && originalBodyHtml.trim().length > 0
+    ? originalBodyHtml
+    : originalBodyPlain
+      ? `<pre>${escapeHtml(originalBodyPlain)}</pre>`
+      : "";
+
+  if (!inner) return draftHtml ?? "";
+
+  // gmail_quote class triggers Gmail's "..." collapse on the recipient
+  // side. Inline style as a belt-and-suspenders for clients that
+  // ignore the class hook.
+  const quoted = `<div class="gmail_quote_attribution">${safeHeader}</div>` +
+    `<blockquote class="gmail_quote" style="margin:0 0 0 .8ex;border-left:1px solid #ccc;padding-left:1ex">` +
+    inner +
+    `</blockquote>`;
+
+  return `${draftHtml ?? ""}<br><br>${quoted}`;
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * Convert HTML to a clean plain-text fallback for the
+ * `multipart/alternative` `text/plain` part. We never trust the
+ * sender's plain version (some senders ship CSS-leaked junk), and
+ * recipients on text-only clients shouldn't see HTML markup.
+ *
+ * This is intentionally minimal — it's not meant to preserve layout,
+ * just produce something readable. For richer conversion we'd reach
+ * for `html-to-text`; the bundle cost isn't worth it for replies.
+ */
+export function htmlToPlainText(html: string | null | undefined): string {
+  if (!html) return "";
+  return html
+    // Block-level boundaries → newline before strip.
+    .replace(/<\/(p|div|h[1-6]|li|tr|br|blockquote)>/gi, "\n")
+    .replace(/<br\s*\/?\s*>/gi, "\n")
+    // Strip remaining tags.
+    .replace(/<[^>]+>/g, "")
+    // Decode the common entities (DOMPurify already keeps these
+    // valid; we just unescape so plain readers see real characters).
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\r/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/**
  * Case-insensitive client-side search over a thread. Matches against
  * subject + from + body + classification of every message in the
  * thread (so a thread surfaces if any reply contains the query).
@@ -321,9 +406,9 @@ export function scoreDotClass(tier: ScoreTier): string {
     case "medium":
       return "bg-amber-500";
     case "low":
-      return "bg-slate-400";
+      return "bg-muted";
     case "muted":
-      return "bg-slate-300";
+      return "bg-border";
   }
 }
 

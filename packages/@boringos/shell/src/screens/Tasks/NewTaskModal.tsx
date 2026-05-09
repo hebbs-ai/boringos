@@ -22,15 +22,25 @@ export interface NewTaskModalProps {
 }
 
 const ASSIGN_ME = "__me__";
+// The single human-facing assistant per tenant. Tenants may rename
+// the agent ("Chief of Staff" → "Atlas"), so resolve by role rather
+// than name.
+const CHIEF_OF_STAFF_ROLE = "chief-of-staff";
 
 export function NewTaskModal({ onClose, onCreated, agents, parentId }: NewTaskModalProps) {
   const client = useClient();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<"low" | "medium" | "high">("medium");
-  // Default to "Me" — the most common case for human-driven tasks
-  // (jot something down, come back to it).
-  const [assignee, setAssignee] = useState<string>(ASSIGN_ME);
+  // Default to Chief of Staff — that's the user's personal AI proxy
+  // and the 90% case for "+ New task" is "ask my agent to do X."
+  // Fall back to "Me" only when the tenant hasn't been provisioned
+  // with a CoS agent (rare; mostly self-hosted edge cases).
+  const defaultAssignee = useMemo(
+    () => agents.find((a) => a.role === CHIEF_OF_STAFF_ROLE)?.id ?? ASSIGN_ME,
+    [agents],
+  );
+  const [assignee, setAssignee] = useState<string>(defaultAssignee);
   const [wakeNow, setWakeNow] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -88,18 +98,18 @@ export function NewTaskModal({ onClose, onCreated, agents, parentId }: NewTaskMo
   return (
     <div
       data-testid="new-task-modal"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-accent/40 px-4"
       onClick={() => !busy && onClose()}
     >
       <div
-        className="w-full max-w-xl rounded-xl bg-white shadow-xl ring-1 ring-slate-200 flex flex-col max-h-[85vh]"
+        className="w-full max-w-xl rounded-xl bg-white shadow-xl ring-1 ring-border flex flex-col max-h-[85vh]"
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="px-5 pt-4 pb-3 border-b border-slate-100">
-          <h2 className="text-base font-semibold text-slate-900">
+        <header className="px-5 pt-4 pb-3 border-b border-border-subtle">
+          <h2 className="text-base font-semibold text-text">
             {parentId ? "New subtask" : "New task"}
           </h2>
-          <p className="text-[11px] text-slate-500 mt-0.5">
+          <p className="text-[11px] text-muted mt-0.5">
             Description supports markdown · ⌘+Enter to submit
           </p>
         </header>
@@ -168,16 +178,16 @@ export function NewTaskModal({ onClose, onCreated, agents, parentId }: NewTaskMo
           </div>
 
           {isAgent && (
-            <label className="flex items-center gap-2 text-xs text-slate-700 mt-1">
+            <label className="flex items-center gap-2 text-xs text-text-secondary mt-1">
               <input
                 type="checkbox"
                 checked={wakeNow}
                 onChange={(e) => setWakeNow(e.target.checked)}
                 disabled={busy}
-                className="rounded border-slate-300"
+                className="rounded border-border"
               />
               Wake the agent now
-              <span className="text-slate-400">
+              <span className="text-muted">
                 — fires immediately so the agent starts on this task
               </span>
             </label>
@@ -195,7 +205,7 @@ export function NewTaskModal({ onClose, onCreated, agents, parentId }: NewTaskMo
             type="button"
             onClick={onClose}
             disabled={busy}
-            className="text-xs font-medium px-3 py-1.5 rounded-md text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+            className="text-xs font-medium px-3 py-1.5 rounded-md text-muted-strong hover:bg-bg-warm disabled:opacity-50"
           >
             Cancel
           </button>
@@ -203,7 +213,7 @@ export function NewTaskModal({ onClose, onCreated, agents, parentId }: NewTaskMo
             type="button"
             onClick={() => void submit()}
             disabled={busy || !title.trim()}
-            className="text-xs font-medium px-3 py-1.5 rounded-md bg-slate-900 text-white hover:bg-slate-800 disabled:bg-slate-300"
+            className="text-xs font-medium px-3 py-1.5 rounded-md bg-accent text-white hover:bg-accent-light disabled:bg-border"
           >
             {busy ? "Creating…" : "Create"}
           </button>
@@ -214,12 +224,12 @@ export function NewTaskModal({ onClose, onCreated, agents, parentId }: NewTaskMo
 }
 
 const INPUT_CLASS =
-  "mt-1 w-full text-sm border border-slate-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500/40";
+  "mt-1 w-full text-sm border border-border rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-accent/40";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">
+      <span className="text-[10px] uppercase tracking-wider text-muted font-medium">
         {label}
       </span>
       {children}

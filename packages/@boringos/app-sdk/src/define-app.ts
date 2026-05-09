@@ -9,6 +9,25 @@ import type {
   ContextProviderOutput,
 } from "./context.js";
 
+/**
+ * Tenant-level setting an app can declare. Mirrors the
+ * `SettingDefinition` shape in `@boringos/shared` — kept here to
+ * avoid taking a runtime dependency on shared from this leaf SDK.
+ * The host's setting registry casts its `SettingDefinition` to /
+ * from this shape; the structural fields match.
+ */
+export interface AppSettingDefinition {
+  key: string;
+  label: string;
+  description?: string;
+  type: "string" | "boolean" | "number" | "select" | "longtext" | "secret";
+  options?: Array<{ value: string; label: string }>;
+  default?: string | number | boolean;
+  scope?: "tenant" | "user";
+  editableBy?: "admin" | "staff" | "member";
+  readableBy?: "admin" | "staff" | "member";
+}
+
 /* ── Agent / workflow / context provider types ─────────────────────── */
 
 /**
@@ -98,6 +117,15 @@ export interface AppDefinition {
 
   /** Run when tenant uninstalls (soft or hard). */
   onUninstall?: LifecycleHook;
+
+  /**
+   * Tenant-level settings this app contributes. The host shell renders
+   * each declared key in the Settings → General tab using the
+   * appropriate input widget; PATCH /api/admin/settings validates
+   * incoming values against the manifest. See
+   * task_17_tenant_settings_manifest.md.
+   */
+  settings?: AppSettingDefinition[];
 }
 
 /* ── Helper ────────────────────────────────────────────────────────── */

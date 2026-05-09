@@ -10,8 +10,12 @@ export const BORINGOS_BRAND: Brand = {
   productTagline: "",
   logoUrl: "",
   faviconUrl: "",
-  primaryColor: "#2563eb", // tailwind blue-600
-  secondaryColor: "#0f172a", // tailwind slate-900
+  // Hebbs amber-700 — matches the marketing site's accent. Tenants
+  // can override via brand.primaryColor in tenant_settings; the
+  // BrandProvider's CSS-var bridge propagates the override into
+  // --color-accent so every semantic-token consumer repaints.
+  primaryColor: "#B45309",
+  secondaryColor: "#1E293B", // navy/slate-800 — matches website's dark band
   loginBackground: "",
   emailFromName: "BoringOS",
 };

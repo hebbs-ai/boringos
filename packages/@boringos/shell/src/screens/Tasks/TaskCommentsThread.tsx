@@ -23,7 +23,7 @@ export interface TaskCommentsThreadProps {
 export function TaskCommentsThread({ comments, agentsById, meId }: TaskCommentsThreadProps) {
   if (comments.length === 0) {
     return (
-      <p className="text-xs text-slate-400 italic">
+      <p className="text-xs text-muted italic">
         No comments yet. Reply below to start the conversation.
       </p>
     );
@@ -48,27 +48,27 @@ export function TaskCommentsThread({ comments, agentsById, meId }: TaskCommentsT
               <div
                 className={`max-w-[85%] rounded-lg px-3.5 py-2 ring-1 ${
                   isMine
-                    ? "bg-blue-50 ring-blue-200"
+                    ? "bg-accent-tint ring-accent-tint"
                     : agent
                       ? "bg-violet-50/50 ring-violet-100"
-                      : "bg-slate-50 ring-slate-200"
+                      : "bg-bg ring-border"
                 }`}
               >
                 <div
                   className={`text-[10px] font-medium uppercase tracking-wide ${
-                    isMine ? "text-blue-700" : agent ? "text-violet-700" : "text-slate-500"
+                    isMine ? "text-accent" : agent ? "text-violet-700" : "text-muted"
                   }`}
                 >
                   {author}
-                  <span className="text-slate-400 normal-case font-normal">
+                  <span className="text-muted normal-case font-normal">
                     {role}
                   </span>
                 </div>
                 <div className="mt-1">
-                  <Markdown source={c.body} compact />
+                  <Markdown source={c.body} compact className="text-text" />
                 </div>
               </div>
-              <span className="mt-1 text-[10px] text-slate-400 px-1">
+              <span className="mt-1 text-[10px] text-muted px-1">
                 {formatRelativeTime(c.createdAt)}
               </span>
             </li>

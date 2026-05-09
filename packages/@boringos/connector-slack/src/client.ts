@@ -1,9 +1,19 @@
-import type { ConnectorClient, ConnectorCredentials, ActionResult } from "@boringos/connector";
+// Local types — the v1 `@boringos/connector` framework was
+// deleted. v2 callers (the Slack Module) construct this directly
+// with `{ accessToken }`.
+export interface ActionResult {
+  success: boolean;
+  data?: Record<string, unknown>;
+  error?: string;
+}
+export interface SlackCredentials {
+  accessToken: string;
+}
 
-export class SlackClient implements ConnectorClient {
+export class SlackClient {
   private token: string;
 
-  constructor(credentials: ConnectorCredentials) {
+  constructor(credentials: SlackCredentials) {
     this.token = credentials.accessToken;
   }
 

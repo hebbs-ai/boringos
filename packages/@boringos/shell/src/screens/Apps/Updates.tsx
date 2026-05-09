@@ -7,8 +7,8 @@
 export function Updates() {
   return (
     <div className="text-center py-12">
-      <p className="text-sm text-slate-500">No updates available.</p>
-      <p className="text-xs text-slate-400 mt-2 max-w-sm mx-auto">
+      <p className="text-sm text-muted">No updates available.</p>
+      <p className="text-xs text-muted mt-2 max-w-sm mx-auto">
         Auto-update polling lands with the marketplace backend (Phase 4).
         Until then, re-paste an app's GitHub URL to install a newer version.
       </p>

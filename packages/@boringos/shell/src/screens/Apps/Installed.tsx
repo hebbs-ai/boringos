@@ -178,8 +178,8 @@ export function Installed({ api, onUninstalled }: InstalledProps = {}) {
   if (records.length === 0) {
     return (
       <div className="text-center py-12">
-        <p className="text-sm text-slate-500">No apps installed.</p>
-        <p className="text-xs text-slate-400 mt-2">
+        <p className="text-sm text-muted">No apps installed.</p>
+        <p className="text-xs text-muted mt-2">
           Install one from Browse, or paste a GitHub URL in the next tab.
         </p>
       </div>
@@ -213,12 +213,12 @@ export function Installed({ api, onUninstalled }: InstalledProps = {}) {
         />
       )}
 
-      <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white">
+      <ul className="divide-y divide-border-subtle rounded-lg border border-border bg-white">
         {records.map((r) => (
           <li key={r.appId} className="px-4 py-3 flex items-center justify-between">
             <div>
-              <div className="text-sm font-medium text-slate-900">{r.appId}</div>
-              <div className="text-xs text-slate-500 mt-0.5">
+              <div className="text-sm font-medium text-text">{r.appId}</div>
+              <div className="text-xs text-muted mt-0.5">
                 v{r.version} · installed {r.installedAt.toLocaleDateString()}
               </div>
             </div>
@@ -227,7 +227,7 @@ export function Installed({ api, onUninstalled }: InstalledProps = {}) {
                 type="button"
                 onClick={() => handleSoftClick(r.appId)}
                 disabled={state.busy && state.appId === r.appId}
-                className="text-xs px-2.5 py-1 rounded-md bg-slate-100 text-slate-700 hover:bg-slate-200 disabled:opacity-50"
+                className="text-xs px-2.5 py-1 rounded-md bg-bg-warm text-text-secondary hover:bg-border-subtle disabled:opacity-50"
               >
                 {state.busy && state.appId === r.appId ? "Working…" : "Uninstall"}
               </button>

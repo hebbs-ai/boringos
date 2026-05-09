@@ -12,6 +12,7 @@
     { "path": "../memory" },
     { "path": "../db" },
     { "path": "../drive" },
-    { "path": "../pipeline" }
+    { "path": "../pipeline" },
+    { "path": "../module-sdk" }
   ]
 }

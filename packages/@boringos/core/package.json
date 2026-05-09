@@ -18,15 +18,16 @@
   "dependencies": {
     "@boringos/agent": "workspace:*",
     "@boringos/app-sdk": "workspace:*",
-    "@boringos/connector": "workspace:*",
+    "@boringos/connector-google": "workspace:*",
+    "@boringos/connector-slack": "workspace:*",
     "@boringos/control-plane": "workspace:*",
     "@boringos/db": "workspace:*",
     "@boringos/drive": "workspace:*",
     "@boringos/memory": "workspace:*",
+    "@boringos/module-sdk": "workspace:*",
     "@boringos/pipeline": "workspace:*",
     "@boringos/runtime": "workspace:*",
     "@boringos/shared": "workspace:*",
-    "@boringos/workflow": "workspace:*",
     "@hono/node-server": "^1.13.0",
     "better-auth": "^1.6.0",
     "hono": "^4.7.0"

@@ -1,3 +1,58 @@
+// ── Tenant settings manifest ─────────────────────────────────────────────────
+//
+// Apps and modules declare typed tenant-level config; the host shell
+// auto-renders inputs into the Settings → General tab.
+// See task_17_tenant_settings_manifest.md for the full design.
+
+export const SETTING_TYPES = [
+  "string",
+  "boolean",
+  "number",
+  "select",
+  "longtext",
+  "secret",
+] as const;
+export type SettingType = (typeof SETTING_TYPES)[number];
+
+export const SETTING_SCOPES = ["tenant", "user"] as const;
+export type SettingScope = (typeof SETTING_SCOPES)[number];
+
+export const SETTING_ROLES = ["admin", "staff", "member"] as const;
+export type SettingRole = (typeof SETTING_ROLES)[number];
+
+export interface SettingDefinition {
+  /** Storage key. Convention: `<appOrModuleId>.<dotted.path>`. */
+  key: string;
+  /** Display label in the Settings UI. */
+  label: string;
+  /** Help text shown beneath the input. */
+  description?: string;
+  /** Input type. Drives the UI widget + serialisation. */
+  type: SettingType;
+  /** For type: "select", the allowed options. */
+  options?: Array<{ value: string; label: string }>;
+  /** Default applied when the row is missing. Serialised to string in storage. */
+  default?: string | number | boolean;
+  /** Who the setting belongs to. `user` is reserved; current shell only renders `tenant`. */
+  scope?: SettingScope;
+  /** Required role to edit. Default: "admin". */
+  editableBy?: SettingRole;
+  /** Required role to read. Default: same as editableBy. */
+  readableBy?: SettingRole;
+  /**
+   * Origin component — populated by the registry, not by the
+   * declaring code. Used by the UI to group settings under their
+   * source (e.g. "inbox", "framework").
+   */
+  ownerId?: string;
+  /**
+   * Origin kind — populated by the registry. "app" for AppDefinition
+   * settings, "module" for v2 Module settings, "framework" for
+   * built-in keys the host owns.
+   */
+  ownerKind?: "app" | "module" | "framework";
+}
+
 // ── Base structural types ────────────────────────────────────────────────────
 
 export interface Identifiable {
@@ -72,11 +127,23 @@ export interface Agent extends Identifiable, TenantScoped, Timestamped {
   lastHeartbeatAt: Date | null;
 }
 
+/**
+ * Handoff state machine, independent of `status` (lifecycle).
+ * Drives the auto-rewake gate and the UI's "Waiting on you" badge.
+ *
+ * - `agent`: agent should pick up. Auto-rewake fires.
+ * - `human`: human should pick up. Auto-rewake skipped.
+ * - `null`: terminal (status='done' or cancelled).
+ */
+export type NextActor = "agent" | "human" | null;
+
 export interface Task extends Identifiable, TenantScoped, Timestamped {
   parentId: string | null;
   title: string;
   description: string | null;
   status: TaskStatus;
+  /** Whose turn it is. See `NextActor`. */
+  nextActor: NextActor;
   priority: TaskPriority;
   assigneeAgentId: string | null;
   assigneeUserId: string | null;

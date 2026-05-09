@@ -86,7 +86,7 @@ export function Tasks() {
         subtitle="Things waiting on you, and things in flight"
         actions={
           <>
-            <div className="flex items-center gap-1 rounded-md border border-slate-200 bg-white p-0.5">
+            <div className="flex items-center gap-1 rounded-md border border-border bg-white p-0.5">
               {TAB_ORDER.map((t) => (
                 <button
                   key={t}
@@ -94,15 +94,15 @@ export function Tasks() {
                   onClick={() => setTab(t)}
                   className={`px-2.5 py-1 text-xs rounded inline-flex items-center gap-1 ${
                     tab === t
-                      ? "bg-slate-100 text-slate-900 font-medium"
-                      : "text-slate-500 hover:text-slate-900"
+                      ? "bg-bg-warm text-text font-medium"
+                      : "text-muted hover:text-text"
                   }`}
                 >
                   {TAB_LABEL[t]}
                   {counts[t] > 0 && (
                     <span
                       className={`text-[10px] tabular-nums px-1 rounded ${
-                        tab === t ? "bg-slate-200 text-slate-700" : "bg-slate-100 text-slate-500"
+                        tab === t ? "bg-border-subtle text-text-secondary" : "bg-bg-warm text-muted"
                       }`}
                     >
                       {counts[t]}
@@ -114,7 +114,7 @@ export function Tasks() {
             <button
               type="button"
               onClick={() => setComposeOpen(true)}
-              className="text-xs font-medium px-3 py-1.5 rounded-md bg-slate-900 text-white hover:bg-slate-800"
+              className="text-xs font-medium px-3 py-1.5 rounded-md bg-accent text-white hover:bg-accent-light"
             >
               + New task
             </button>
@@ -123,7 +123,7 @@ export function Tasks() {
       />
       <ScreenBody>
         <div className="flex h-[calc(100vh-160px)] gap-4">
-          <div className="w-96 border border-slate-200 rounded-lg bg-white overflow-hidden flex flex-col">
+          <div className="w-96 border border-border rounded-lg bg-white overflow-hidden flex flex-col">
             {filtered.length === 0 && !isLoading ? (
               <TaskEmptyState tab={tab} onNewTask={() => setComposeOpen(true)} />
             ) : (
@@ -137,7 +137,7 @@ export function Tasks() {
             )}
           </div>
 
-          <div className="flex-1 border border-slate-200 rounded-lg bg-white overflow-hidden flex flex-col min-w-0">
+          <div className="flex-1 border border-border rounded-lg bg-white overflow-hidden flex flex-col min-w-0">
             <TaskDetail
               taskId={selected?.id ?? null}
               meId={meId}

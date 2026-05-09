@@ -95,7 +95,7 @@ export function ScheduleMeetingModal({ item, onClose, onScheduled }: ScheduleMee
       try {
         const now = new Date();
         const end = new Date(now.getTime() + WINDOW_DAYS * 24 * 60 * 60 * 1000);
-        const result = await client.invokeAction("google", "find_free_slots", {
+        const result = await client.invokeAction("google", "calendar.find_free_slots", {
           timeMin: now.toISOString(),
           timeMax: end.toISOString(),
           durationMinutes: DURATION_MINUTES,
@@ -128,7 +128,7 @@ export function ScheduleMeetingModal({ item, onClose, onScheduled }: ScheduleMee
         .filter((a) => a.length > 0 && a.includes("@"));
 
       // 1) Create the event.
-      const create = await client.invokeAction("google", "create_event", {
+      const create = await client.invokeAction("google", "calendar.create_event", {
         summary: title,
         startTime: picked.start,
         endTime: picked.end,
@@ -155,7 +155,7 @@ export function ScheduleMeetingModal({ item, onClose, onScheduled }: ScheduleMee
         ]
           .filter(Boolean)
           .join("\n");
-        await client.invokeAction("google", "send_email", {
+        await client.invokeAction("google", "gmail.send_email", {
           to: senderEmail,
           subject,
           body,
@@ -190,19 +190,19 @@ export function ScheduleMeetingModal({ item, onClose, onScheduled }: ScheduleMee
   return (
     <div
       data-testid="schedule-meeting-modal"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-accent/40 px-4"
       onClick={() => !busy && onClose()}
     >
       <div
-        className="w-full max-w-xl rounded-xl bg-white shadow-xl ring-1 ring-slate-200 flex flex-col max-h-[85vh]"
+        className="w-full max-w-xl rounded-xl bg-white shadow-xl ring-1 ring-border flex flex-col max-h-[85vh]"
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="px-5 pt-4 pb-3 border-b border-slate-100">
-          <h2 className="text-base font-semibold text-slate-900">
+        <header className="px-5 pt-4 pb-3 border-b border-border-subtle">
+          <h2 className="text-base font-semibold text-text">
             {done ? "Meeting scheduled." : "Schedule a meeting"}
           </h2>
           {!done && (
-            <p className="text-[11px] text-slate-500 mt-0.5">
+            <p className="text-[11px] text-muted mt-0.5">
               Pick a {DURATION_MINUTES}-minute slot in the next {WINDOW_DAYS} days. We'll
               create the event and {item.source === "google.gmail" && senderEmail
                 ? "send a confirmation reply."
@@ -239,14 +239,14 @@ export function ScheduleMeetingModal({ item, onClose, onScheduled }: ScheduleMee
               </Field>
 
               <div>
-                <span className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">
+                <span className="text-[10px] uppercase tracking-wider text-muted font-medium">
                   Available slots
                 </span>
                 <div className="mt-1.5">
                   {loadingSlots ? (
-                    <p className="text-xs text-slate-400">Checking your calendar…</p>
+                    <p className="text-xs text-muted">Checking your calendar…</p>
                   ) : slots.length === 0 ? (
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-muted">
                       No {DURATION_MINUTES}-minute slots available in the next {WINDOW_DAYS}{" "}
                       days within your working hours. Try a custom time via the New
                       Event button on Calendar.
@@ -255,7 +255,7 @@ export function ScheduleMeetingModal({ item, onClose, onScheduled }: ScheduleMee
                     <div className="space-y-3">
                       {groupSlotsByDay(slots).map((group) => (
                         <div key={group.day}>
-                          <div className="text-[11px] font-medium text-slate-600 mb-1">
+                          <div className="text-[11px] font-medium text-muted-strong mb-1">
                             {group.day}
                           </div>
                           <div className="flex flex-wrap gap-1.5">
@@ -270,8 +270,8 @@ export function ScheduleMeetingModal({ item, onClose, onScheduled }: ScheduleMee
                                   disabled={busy}
                                   className={`text-xs font-medium px-2.5 py-1.5 rounded-md ring-1 ${
                                     isPicked
-                                      ? "bg-blue-600 text-white ring-blue-600"
-                                      : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50"
+                                      ? "bg-accent text-white ring-accent"
+                                      : "bg-white text-text-secondary ring-border hover:bg-bg"
                                   }`}
                                 >
                                   {fmt.time.split(" – ")[0]}
@@ -300,7 +300,7 @@ export function ScheduleMeetingModal({ item, onClose, onScheduled }: ScheduleMee
             <button
               type="button"
               onClick={onClose}
-              className="text-xs font-medium px-3 py-1.5 rounded-md bg-slate-900 text-white hover:bg-slate-800"
+              className="text-xs font-medium px-3 py-1.5 rounded-md bg-accent text-white hover:bg-accent-light"
             >
               Close
             </button>
@@ -310,7 +310,7 @@ export function ScheduleMeetingModal({ item, onClose, onScheduled }: ScheduleMee
                 type="button"
                 onClick={onClose}
                 disabled={busy}
-                className="text-xs font-medium px-3 py-1.5 rounded-md text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+                className="text-xs font-medium px-3 py-1.5 rounded-md text-muted-strong hover:bg-bg-warm disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -318,7 +318,7 @@ export function ScheduleMeetingModal({ item, onClose, onScheduled }: ScheduleMee
                 type="button"
                 onClick={() => void onConfirm()}
                 disabled={busy || !picked || !title.trim()}
-                className="text-xs font-medium px-3 py-1.5 rounded-md bg-slate-900 text-white hover:bg-slate-800 disabled:bg-slate-300"
+                className="text-xs font-medium px-3 py-1.5 rounded-md bg-accent text-white hover:bg-accent-light disabled:bg-border"
               >
                 {busy ? "Scheduling…" : picked ? "Schedule + send confirm" : "Pick a slot"}
               </button>
@@ -331,12 +331,12 @@ export function ScheduleMeetingModal({ item, onClose, onScheduled }: ScheduleMee
 }
 
 const INPUT_CLASS =
-  "mt-1 w-full text-sm border border-slate-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500/40";
+  "mt-1 w-full text-sm border border-border rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-accent/40";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">
+      <span className="text-[10px] uppercase tracking-wider text-muted font-medium">
         {label}
       </span>
       {children}

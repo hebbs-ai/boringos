@@ -7,7 +7,6 @@
 
 import { sql } from "drizzle-orm";
 import type { Db } from "@boringos/db";
-import type { ActionRunner } from "@boringos/connector";
 import { syncSnoozeWake } from "./inbox-gmail-sync.js";
 
 export interface InboxSnoozeTicker {
@@ -21,10 +20,9 @@ const DEFAULT_INTERVAL_MS = 30_000;
 
 export function createInboxSnoozeTicker(
   db: Db,
-  options: { intervalMs?: number; actionRunner?: ActionRunner } = {},
+  options: { intervalMs?: number } = {},
 ): InboxSnoozeTicker {
   const intervalMs = options.intervalMs ?? DEFAULT_INTERVAL_MS;
-  const actionRunner = options.actionRunner;
   let interval: ReturnType<typeof setInterval> | null = null;
 
   async function tickOnce(): Promise<number> {
@@ -45,10 +43,8 @@ export function createInboxSnoozeTicker(
     // Mirror the wake to Gmail (re-add INBOX, remove Hebbs/Snoozed) for
     // each item — fire-and-forget. Failures are logged inside the
     // helper; the local DB flip is the source of truth.
-    if (actionRunner) {
-      for (const row of rows) {
-        void syncSnoozeWake({ db, actionRunner }, row.tenant_id, row.id);
-      }
+    for (const row of rows) {
+      void syncSnoozeWake({ db }, row.tenant_id, row.id);
     }
     return rows.length;
   }

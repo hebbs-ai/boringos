@@ -16,19 +16,38 @@ export type {
 
 export { BoringOS } from "./boringos.js";
 
+// v2 (Skills + Tools + Modules) — built-in module factories.
+// Hosts opt into v2 by registering them: `app.module(createFrameworkModule)`.
+export { createFrameworkModule } from "./v2-modules/framework.js";
+export { createMemoryModule } from "./v2-modules/memory.js";
+export { createDriveModule } from "./v2-modules/drive.js";
+export { createWorkflowModule } from "./v2-modules/workflow.js";
+export { createInboxModule } from "./v2-modules/inbox.js";
+export { createSlackModule } from "./v2-modules/slack.js";
+export { createGoogleModule } from "./v2-modules/google.js";
+export { createHebbsCrmModule } from "./v2-modules/hebbs-crm.js";
+export { createCopilotModule } from "./v2-modules/copilot.js";
+export { createTriageModule } from "./v2-modules/triage.js";
+
 // Re-export key types from sub-packages for convenience
 export type { MemoryProvider } from "@boringos/memory";
 export type { RuntimeModule, RuntimeRegistry } from "@boringos/runtime";
 export type { StorageBackend } from "@boringos/drive";
 export type { AgentEngine, ContextProvider } from "@boringos/agent";
-export type { WorkflowEngine, BlockHandler } from "@boringos/workflow";
+// WorkflowEngine + BlockHandler types removed — workflows run
+// through the v2 `workflow.run` tool dispatcher now.
 
 export { createAuthMiddleware } from "./auth-middleware.js";
+// installDefaultWorkflows + pauseDefaultWorkflows removed —
+// drove the v1 BlockHandler engine which no longer exists.
+export type { EventBus, ConnectorEvent } from "./event-bus.js";
 export {
-  installDefaultWorkflows,
-  pauseDefaultWorkflows,
-} from "./connectors/post-connect.js";
-export type { EventBus, ConnectorEvent } from "@boringos/connector";
+  classifyAutomatedMail,
+  extractEmailAddress,
+  type AutomatedClassification,
+  type AutomatedKind,
+} from "./automated-mail.js";
+export { buildIngestMetadata } from "./inbox-gmail-forward-sync.js";
 export { createRealtimeBus } from "./realtime.js";
 export type { RealtimeBus, RealtimeEvent, EventType } from "./realtime.js";
 

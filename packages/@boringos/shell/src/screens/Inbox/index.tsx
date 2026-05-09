@@ -445,7 +445,7 @@ export function Inbox() {
           <div className="flex items-center gap-2">
             {lastSyncAt && (
               <span
-                className="text-[10px] text-slate-500 tabular-nums"
+                className="text-[10px] text-muted tabular-nums"
                 title={`Last connector sync: ${lastSyncAt}`}
               >
                 Synced {formatRelativeTime(lastSyncAt, tickNow)}
@@ -454,12 +454,12 @@ export function Inbox() {
             <button
               type="button"
               onClick={handleRefresh}
-              className="text-xs px-2 py-1 rounded text-slate-600 hover:bg-slate-100"
+              className="text-xs px-2 py-1 rounded text-muted-strong hover:bg-bg-warm"
               title="Refresh"
             >
               ↻
             </button>
-            <div className="flex items-center gap-1 rounded-md border border-slate-200 bg-white p-0.5">
+            <div className="flex items-center gap-1 rounded-md border border-border bg-white p-0.5">
             {STATUSES.map((s) => (
               <button
                 key={s}
@@ -470,8 +470,8 @@ export function Inbox() {
                 }}
                 className={`px-2.5 py-1 text-xs rounded flex items-center gap-1.5 ${
                   status === s
-                    ? "bg-slate-100 text-slate-900 font-medium"
-                    : "text-slate-500 hover:text-slate-900"
+                    ? "bg-bg-warm text-text font-medium"
+                    : "text-muted hover:text-text"
                 }`}
               >
                 <span className="capitalize">{s}</span>
@@ -479,8 +479,8 @@ export function Inbox() {
                   <span
                     className={`text-[10px] tabular-nums px-1 rounded ${
                       status === s
-                        ? "bg-slate-200 text-slate-700"
-                        : "bg-slate-100 text-slate-500"
+                        ? "bg-border-subtle text-text-secondary"
+                        : "bg-bg-warm text-muted"
                     }`}
                   >
                     {counts[s]}
@@ -527,7 +527,7 @@ export function Inbox() {
                   setSelectedId(null);
                 }}
               />
-              <div className="flex-1 border border-slate-200 rounded-lg bg-white overflow-hidden flex flex-col">
+              <div className="flex-1 border border-border rounded-lg bg-white overflow-hidden flex flex-col">
                 <BulkActionBar
                   count={bulkSelected.size}
                   busy={bulkBusy}
@@ -547,7 +547,7 @@ export function Inbox() {
               </div>
             </div>
 
-            <div className="flex-1 border border-slate-200 rounded-lg bg-white overflow-hidden flex flex-col min-w-0">
+            <div className="flex-1 border border-border rounded-lg bg-white overflow-hidden flex flex-col min-w-0">
               <InboxDetail
                 thread={selectedThread}
                 onDiscardDraft={handleDiscardDraft}

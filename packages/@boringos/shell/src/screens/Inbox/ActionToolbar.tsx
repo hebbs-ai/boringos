@@ -51,7 +51,7 @@ export function ActionToolbar({
         type="button"
         onClick={onReply}
         disabled={busy}
-        className="text-xs font-medium px-3 py-1.5 rounded-md bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50"
+        className="text-xs font-medium px-3 py-1.5 rounded-md bg-accent text-white hover:bg-accent-light disabled:opacity-50"
         title={hasDrafts ? "Reply (a draft is ready)" : "Reply"}
       >
         Reply{hasDrafts ? " ✏" : ""}
@@ -60,7 +60,7 @@ export function ActionToolbar({
         type="button"
         onClick={onArchive}
         disabled={busy}
-        className="text-xs font-medium px-3 py-1.5 rounded-md text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+        className="text-xs font-medium px-3 py-1.5 rounded-md text-text-secondary hover:bg-bg-warm disabled:opacity-50"
         title="Archive (e)"
       >
         Archive
@@ -70,13 +70,13 @@ export function ActionToolbar({
           type="button"
           onClick={() => setSnoozeOpen((v) => !v)}
           disabled={busy}
-          className="text-xs font-medium px-3 py-1.5 rounded-md text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+          className="text-xs font-medium px-3 py-1.5 rounded-md text-text-secondary hover:bg-bg-warm disabled:opacity-50"
           title="Snooze (s)"
         >
           Snooze ▾
         </button>
         {snoozeOpen && (
-          <div className="absolute z-20 top-full left-0 mt-1 w-44 rounded-md bg-white shadow-lg ring-1 ring-slate-200 overflow-hidden">
+          <div className="absolute z-20 top-full left-0 mt-1 w-44 rounded-md bg-white shadow-lg ring-1 ring-border overflow-hidden">
             {SNOOZE_PRESETS.map((preset) => (
               <button
                 key={preset.id}
@@ -85,7 +85,7 @@ export function ActionToolbar({
                   setSnoozeOpen(false);
                   onSnooze(preset.resolve(new Date()));
                 }}
-                className="w-full text-left text-xs px-3 py-2 hover:bg-slate-50"
+                className="w-full text-left text-xs px-3 py-2 hover:bg-bg"
               >
                 {preset.label}
               </button>
@@ -98,7 +98,7 @@ export function ActionToolbar({
           type="button"
           onClick={onSchedule}
           disabled={busy}
-          className="text-xs font-medium px-3 py-1.5 rounded-md text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+          className="text-xs font-medium px-3 py-1.5 rounded-md text-text-secondary hover:bg-bg-warm disabled:opacity-50"
           title="Schedule a meeting from this email"
         >
           🗓 Schedule
@@ -108,7 +108,7 @@ export function ActionToolbar({
         type="button"
         onClick={onMarkUnread}
         disabled={busy}
-        className="text-xs font-medium px-3 py-1.5 rounded-md text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+        className="text-xs font-medium px-3 py-1.5 rounded-md text-text-secondary hover:bg-bg-warm disabled:opacity-50"
         title="Mark unread (u)"
       >
         Mark unread
@@ -117,7 +117,7 @@ export function ActionToolbar({
         type="button"
         onClick={onConvertToTask}
         disabled={busy}
-        className="text-xs font-medium px-3 py-1.5 rounded-md text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+        className="text-xs font-medium px-3 py-1.5 rounded-md text-text-secondary hover:bg-bg-warm disabled:opacity-50"
         title="Convert to task (t)"
       >
         Convert to task

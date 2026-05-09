@@ -11,15 +11,15 @@ import { formatRelativeTime, originLabel, statusLabel } from "./presenter.js";
 const PRIORITY_BG: Record<string, string> = {
   high: "bg-red-500",
   medium: "bg-amber-400",
-  low: "bg-slate-300",
+  low: "bg-border",
 };
 
 const STATUS_COLOR: Record<string, string> = {
-  todo: "bg-slate-100 text-slate-700",
-  in_progress: "bg-blue-100 text-blue-800",
+  todo: "bg-bg-warm text-text-secondary",
+  in_progress: "bg-accent-tint text-accent",
   blocked: "bg-rose-100 text-rose-800",
   done: "bg-emerald-100 text-emerald-800",
-  cancelled: "bg-slate-100 text-slate-500 line-through",
+  cancelled: "bg-bg-warm text-muted line-through",
 };
 
 export interface TaskListProps {
@@ -34,12 +34,12 @@ export function TaskList({ tasks, isLoading, selectedId, needsAttention, onSelec
   if (isLoading) return <LoadingState />;
 
   return (
-    <ul className="overflow-auto divide-y divide-slate-100">
+    <ul className="overflow-auto divide-y divide-border-subtle">
       {tasks.map((t) => {
         const selected = t.id === selectedId;
         const flagged = needsAttention.has(t.id);
-        const priorityClass = PRIORITY_BG[t.priority] ?? "bg-slate-300";
-        const statusClass = STATUS_COLOR[t.status] ?? "bg-slate-100 text-slate-600";
+        const priorityClass = PRIORITY_BG[t.priority] ?? "bg-border";
+        const statusClass = STATUS_COLOR[t.status] ?? "bg-bg-warm text-muted-strong";
         return (
           <li
             key={t.id}
@@ -49,10 +49,10 @@ export function TaskList({ tasks, isLoading, selectedId, needsAttention, onSelec
             onClick={() => onSelect(t.id)}
             className={`px-4 py-3 cursor-pointer border-l-2 ${
               selected
-                ? "bg-blue-50/60 border-blue-500"
+                ? "bg-accent-tint/60 border-accent"
                 : flagged
                   ? "bg-rose-50/40 border-rose-400 hover:bg-rose-50/70"
-                  : "border-transparent hover:bg-slate-50"
+                  : "border-transparent hover:bg-bg"
             }`}
           >
             <div className="flex items-start gap-2">
@@ -63,15 +63,15 @@ export function TaskList({ tasks, isLoading, selectedId, needsAttention, onSelec
               />
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline justify-between gap-2">
-                  <span className="text-sm font-medium text-slate-900 truncate">
+                  <span className="text-sm font-medium text-text truncate">
                     {t.title}
                   </span>
-                  <span className="text-[10px] text-slate-400 shrink-0 tabular-nums">
+                  <span className="text-[10px] text-muted shrink-0 tabular-nums">
                     {formatRelativeTime(t.updatedAt)}
                   </span>
                 </div>
                 {t.description && (
-                  <p className="text-xs text-slate-500 truncate mt-0.5">
+                  <p className="text-xs text-muted truncate mt-0.5">
                     {/* Show plain text in the row preview — markdown
                         rendering is reserved for the detail pane.
                         Strip basic markup to avoid noise. */}
@@ -85,11 +85,11 @@ export function TaskList({ tasks, isLoading, selectedId, needsAttention, onSelec
                     {statusLabel(t.status)}
                   </span>
                   {t.identifier && (
-                    <span className="text-[10px] text-slate-400 font-mono">
+                    <span className="text-[10px] text-muted font-mono">
                       {t.identifier}
                     </span>
                   )}
-                  <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                  <span className="text-[10px] text-muted bg-bg-warm px-1.5 py-0.5 rounded">
                     {originLabel(t.originKind)}
                   </span>
                   {flagged && (

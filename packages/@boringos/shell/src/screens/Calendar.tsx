@@ -95,7 +95,7 @@ export function Calendar() {
     queryKey: ["calendar", "list_events", "primary"],
     queryFn: async () => {
       const { timeMin, timeMax } = rangeIso();
-      const result = await client.invokeAction("google", "list_events", {
+      const result = await client.invokeAction("google", "calendar.list_events", {
         timeMin,
         timeMax,
         maxResults: 100,
@@ -129,14 +129,14 @@ export function Calendar() {
               type="button"
               onClick={() => void refetch()}
               disabled={isFetching}
-              className="text-xs font-medium px-3 py-1.5 rounded-md text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+              className="text-xs font-medium px-3 py-1.5 rounded-md text-muted-strong hover:bg-bg-warm disabled:opacity-50"
             >
               {isFetching ? "Refreshing…" : "Refresh"}
             </button>
             <button
               type="button"
               onClick={() => setComposeOpen(true)}
-              className="text-xs font-medium px-3 py-1.5 rounded-md bg-slate-900 text-white hover:bg-slate-800"
+              className="text-xs font-medium px-3 py-1.5 rounded-md bg-accent text-white hover:bg-accent-light"
             >
               + New event
             </button>
@@ -180,12 +180,12 @@ export function Calendar() {
             />
           )}
 
-          <div className="flex-1 overflow-auto border-l border-slate-100">
+          <div className="flex-1 overflow-auto border-l border-border-subtle">
             {selected ? (
               <EventDetail event={selected} />
             ) : (
               <div className="flex-1 flex items-center justify-center h-full">
-                <p className="text-sm text-slate-500">Select an event to read.</p>
+                <p className="text-sm text-muted">Select an event to read.</p>
               </div>
             )}
           </div>
@@ -203,7 +203,7 @@ export function Calendar() {
 
 function ViewTabs({ view, onChange }: { view: View; onChange: (v: View) => void }) {
   return (
-    <div className="inline-flex rounded-md bg-slate-100 p-0.5">
+    <div className="inline-flex rounded-md bg-bg-warm p-0.5">
       {(["week", "agenda"] as const).map((v) => (
         <button
           key={v}
@@ -211,8 +211,8 @@ function ViewTabs({ view, onChange }: { view: View; onChange: (v: View) => void 
           onClick={() => onChange(v)}
           className={`text-xs font-medium px-3 py-1 rounded ${
             view === v
-              ? "bg-white shadow-sm text-slate-900"
-              : "text-slate-600 hover:text-slate-900"
+              ? "bg-white shadow-sm text-text"
+              : "text-muted-strong hover:text-text"
           }`}
         >
           {v === "week" ? "Week" : "Agenda"}
@@ -249,10 +249,10 @@ function AgendaList({
     <ul className="w-96 overflow-auto">
       {grouped.map((g) => (
         <li key={g.day}>
-          <div className="sticky top-0 bg-slate-50 px-4 py-1.5 text-[11px] font-medium text-slate-500 uppercase tracking-wide border-b border-slate-100">
+          <div className="sticky top-0 bg-bg px-4 py-1.5 text-[11px] font-medium text-muted uppercase tracking-wide border-b border-border-subtle">
             {g.day}
           </div>
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-border-subtle">
             {g.events.map((e) => {
               const s = startOf(e);
               const en = endOf(e);
@@ -263,22 +263,22 @@ function AgendaList({
                   onClick={() => onSelect(e.id)}
                   className={`px-4 py-3 cursor-pointer border-l-2 ${
                     isSel
-                      ? "bg-blue-50/60 border-blue-500"
-                      : "border-transparent hover:bg-slate-50"
+                      ? "bg-accent-tint/60 border-accent"
+                      : "border-transparent hover:bg-bg"
                   }`}
                 >
-                  <div className="text-[10px] text-slate-500 tabular-nums">
+                  <div className="text-[10px] text-muted tabular-nums">
                     {isAllDay(e)
                       ? "All day"
                       : s && en
                         ? `${formatTime(s)} – ${formatTime(en)}`
                         : "—"}
                   </div>
-                  <div className="text-sm font-medium text-slate-900 truncate mt-0.5">
+                  <div className="text-sm font-medium text-text truncate mt-0.5">
                     {e.summary || "(untitled event)"}
                   </div>
                   {e.attendees && e.attendees.length > 0 && (
-                    <div className="text-[11px] text-slate-500 mt-0.5">
+                    <div className="text-[11px] text-muted mt-0.5">
                       {e.attendees.length} attendee{e.attendees.length === 1 ? "" : "s"}
                     </div>
                   )}
@@ -354,21 +354,21 @@ function WeekView({
   return (
     <div className="flex-1 overflow-hidden flex flex-col min-w-0">
       {/* Day-headers row (sticky on top) */}
-      <div className="grid border-b border-slate-100" style={{ gridTemplateColumns: "60px repeat(7, 1fr)" }}>
+      <div className="grid border-b border-border-subtle" style={{ gridTemplateColumns: "60px repeat(7, 1fr)" }}>
         <div /> {/* gutter for hour labels */}
         {days.map((d, i) => {
           const isToday = sameDay(d, now);
           return (
             <div
               key={i}
-              className="px-2 py-2 text-center border-l border-slate-100"
+              className="px-2 py-2 text-center border-l border-border-subtle"
             >
-              <div className="text-[10px] uppercase tracking-wider text-slate-500">
+              <div className="text-[10px] uppercase tracking-wider text-muted">
                 {d.toLocaleDateString(undefined, { weekday: "short" })}
               </div>
               <div
                 className={`text-sm font-semibold mt-0.5 ${
-                  isToday ? "text-blue-600" : "text-slate-900"
+                  isToday ? "text-accent" : "text-text"
                 }`}
               >
                 {d.getDate()}
@@ -379,12 +379,12 @@ function WeekView({
       </div>
 
       {/* All-day strip */}
-      <div className="grid border-b border-slate-100 bg-slate-50/50" style={{ gridTemplateColumns: "60px repeat(7, 1fr)", minHeight: ALL_DAY_ROW_HEIGHT }}>
-        <div className="text-[10px] text-slate-400 px-2 py-1.5 self-start">All-day</div>
+      <div className="grid border-b border-border-subtle bg-bg/50" style={{ gridTemplateColumns: "60px repeat(7, 1fr)", minHeight: ALL_DAY_ROW_HEIGHT }}>
+        <div className="text-[10px] text-muted px-2 py-1.5 self-start">All-day</div>
         {days.map((d, i) => {
           const allDay = (eventsByDay[i] ?? []).filter(isAllDay);
           return (
-            <div key={i} className="px-1 py-1 border-l border-slate-100 space-y-0.5">
+            <div key={i} className="px-1 py-1 border-l border-border-subtle space-y-0.5">
               {allDay.map((e) => (
                 <button
                   key={e.id}
@@ -392,8 +392,8 @@ function WeekView({
                   onClick={() => onSelect(e.id)}
                   className={`w-full text-left text-[10px] truncate px-1.5 py-0.5 rounded ${
                     e.id === selectedId
-                      ? "bg-blue-600 text-white"
-                      : "bg-blue-100 text-blue-900 hover:bg-blue-200"
+                      ? "bg-accent text-white"
+                      : "bg-accent-tint text-accent hover:bg-accent-tint"
                   }`}
                   title={e.summary}
                 >
@@ -413,7 +413,7 @@ function WeekView({
             {Array.from({ length: HOUR_END - HOUR_START }).map((_, i) => (
               <div
                 key={i}
-                className="text-[10px] text-slate-400 text-right pr-2 border-b border-slate-50"
+                className="text-[10px] text-muted text-right pr-2 border-b border-border-subtle"
                 style={{ height: HOUR_HEIGHT, lineHeight: "1" }}
               >
                 <span className="relative -top-1.5 bg-white px-0.5">
@@ -430,14 +430,14 @@ function WeekView({
             return (
               <div
                 key={i}
-                className="relative border-l border-slate-100"
+                className="relative border-l border-border-subtle"
                 style={{ height: (HOUR_END - HOUR_START) * HOUR_HEIGHT }}
               >
                 {/* Hourly grid lines */}
                 {Array.from({ length: HOUR_END - HOUR_START }).map((_, h) => (
                   <div
                     key={h}
-                    className="border-b border-slate-50"
+                    className="border-b border-border-subtle"
                     style={{ height: HOUR_HEIGHT }}
                   />
                 ))}
@@ -466,8 +466,8 @@ function WeekView({
                       onClick={() => onSelect(e.id)}
                       className={`absolute left-1 right-1 rounded px-1.5 py-1 text-left overflow-hidden ${
                         isSel
-                          ? "bg-blue-600 text-white ring-2 ring-blue-700 z-20"
-                          : "bg-blue-100 text-blue-900 hover:bg-blue-200 z-10"
+                          ? "bg-accent text-white ring-2 ring-accent z-20"
+                          : "bg-accent-tint text-accent hover:bg-accent-tint z-10"
                       }`}
                       style={{ top: layout.top, height: layout.height }}
                       title={e.summary}
@@ -476,7 +476,7 @@ function WeekView({
                         {e.summary || "(untitled)"}
                       </div>
                       {layout.height >= 32 && s && en && (
-                        <div className={`text-[9px] truncate ${isSel ? "text-blue-100" : "text-blue-700"}`}>
+                        <div className={`text-[9px] truncate ${isSel ? "text-white/80" : "text-accent"}`}>
                           {formatTime(s)} – {formatTime(en)}
                         </div>
                       )}
@@ -547,10 +547,10 @@ function EventDetail({ event }: { event: CalEvent }) {
 
   return (
     <div className="px-6 py-5">
-      <h2 className="text-lg font-semibold text-slate-900 leading-tight">
+      <h2 className="text-lg font-semibold text-text leading-tight">
         {event.summary || "(untitled event)"}
       </h2>
-      <div className="mt-2 text-xs text-slate-500 space-x-2">
+      <div className="mt-2 text-xs text-muted space-x-2">
         {isAllDay(event) ? (
           <span>All day, {formatDay(new Date(event.start!.date!))}</span>
         ) : start && end ? (
@@ -571,7 +571,7 @@ function EventDetail({ event }: { event: CalEvent }) {
           href={event.hangoutLink}
           target="_blank"
           rel="noreferrer"
-          className="mt-3 inline-block text-xs font-medium px-3 py-1.5 rounded-md bg-slate-900 text-white hover:bg-slate-800"
+          className="mt-3 inline-block text-xs font-medium px-3 py-1.5 rounded-md bg-accent text-white hover:bg-accent-light"
         >
           Join Meet
         </a>
@@ -579,10 +579,10 @@ function EventDetail({ event }: { event: CalEvent }) {
 
       {event.description && (
         <section className="mt-5">
-          <h3 className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">
+          <h3 className="text-[10px] uppercase tracking-wider text-muted font-medium">
             Description
           </h3>
-          <p className="mt-1 text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">
+          <p className="mt-1 text-sm text-text whitespace-pre-wrap leading-relaxed">
             {event.description}
           </p>
         </section>
@@ -590,16 +590,16 @@ function EventDetail({ event }: { event: CalEvent }) {
 
       {event.attendees && event.attendees.length > 0 && (
         <section className="mt-5">
-          <h3 className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">
+          <h3 className="text-[10px] uppercase tracking-wider text-muted font-medium">
             Attendees ({event.attendees.length})
           </h3>
           <ul className="mt-1.5 space-y-1">
             {event.attendees.map((a) => (
-              <li key={a.email} className="flex items-center gap-2 text-sm text-slate-800">
-                <span className="text-slate-400">•</span>
+              <li key={a.email} className="flex items-center gap-2 text-sm text-text">
+                <span className="text-muted">•</span>
                 <span>{a.displayName || a.email}</span>
                 {a.responseStatus && a.responseStatus !== "needsAction" && (
-                  <span className="text-[10px] text-slate-500">
+                  <span className="text-[10px] text-muted">
                     {a.responseStatus}
                   </span>
                 )}
@@ -614,7 +614,7 @@ function EventDetail({ event }: { event: CalEvent }) {
           href={event.htmlLink}
           target="_blank"
           rel="noreferrer"
-          className="mt-6 inline-block text-xs text-slate-500 hover:text-slate-900 underline"
+          className="mt-6 inline-block text-xs text-muted hover:text-text underline"
         >
           Open in Google Calendar →
         </a>
@@ -661,7 +661,7 @@ function NewEventModal({ onClose, onCreated }: NewEventModalProps) {
         .map((a) => a.trim())
         .filter((a) => a.length > 0 && a.includes("@"));
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-      const result = await client.invokeAction("google", "create_event", {
+      const result = await client.invokeAction("google", "calendar.create_event", {
         summary: title.trim(),
         description: description.trim() || undefined,
         startTime: new Date(startStr).toISOString(),
@@ -680,15 +680,15 @@ function NewEventModal({ onClose, onCreated }: NewEventModalProps) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-accent/40 px-4"
       onClick={() => !busy && onClose()}
     >
       <div
-        className="w-full max-w-lg rounded-xl bg-white shadow-xl ring-1 ring-slate-200 flex flex-col max-h-[85vh]"
+        className="w-full max-w-lg rounded-xl bg-white shadow-xl ring-1 ring-border flex flex-col max-h-[85vh]"
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="px-5 pt-4 pb-3 border-b border-slate-100">
-          <h2 className="text-base font-semibold text-slate-900">New event</h2>
+        <header className="px-5 pt-4 pb-3 border-b border-border-subtle">
+          <h2 className="text-base font-semibold text-text">New event</h2>
         </header>
 
         <div className="px-5 py-4 space-y-3 overflow-auto">
@@ -752,7 +752,7 @@ function NewEventModal({ onClose, onCreated }: NewEventModalProps) {
             type="button"
             onClick={onClose}
             disabled={busy}
-            className="text-xs font-medium px-3 py-1.5 rounded-md text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+            className="text-xs font-medium px-3 py-1.5 rounded-md text-muted-strong hover:bg-bg-warm disabled:opacity-50"
           >
             Cancel
           </button>
@@ -760,7 +760,7 @@ function NewEventModal({ onClose, onCreated }: NewEventModalProps) {
             type="button"
             onClick={() => void submit()}
             disabled={busy || !title.trim() || !startStr || !endStr}
-            className="text-xs font-medium px-3 py-1.5 rounded-md bg-slate-900 text-white hover:bg-slate-800 disabled:bg-slate-300"
+            className="text-xs font-medium px-3 py-1.5 rounded-md bg-accent text-white hover:bg-accent-light disabled:bg-border"
           >
             {busy ? "Creating…" : "Create"}
           </button>
@@ -771,12 +771,12 @@ function NewEventModal({ onClose, onCreated }: NewEventModalProps) {
 }
 
 const INPUT_CLASS =
-  "mt-1 w-full text-sm border border-slate-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500/40";
+  "mt-1 w-full text-sm border border-border rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-accent/40";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">
+      <span className="text-[10px] uppercase tracking-wider text-muted font-medium">
         {label}
       </span>
       {children}

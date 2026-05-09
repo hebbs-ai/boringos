@@ -41,7 +41,7 @@ afterAll(async () => {
 
 async function listForApp(appId: string) {
   return (await conn.db.execute(sql`
-    SELECT id, name, role, instructions, metadata, skills
+    SELECT id, name, role, instructions, metadata, routing_tags AS "routingTags"
     FROM agents
     WHERE tenant_id = ${tenantId}
       AND metadata @> ${JSON.stringify({ appId })}::jsonb
@@ -52,7 +52,7 @@ async function listForApp(appId: string) {
     role: string;
     instructions: string | null;
     metadata: Record<string, unknown>;
-    skills: string[];
+    routingTags: string[];
   }>;
 }
 
@@ -71,7 +71,7 @@ describe("registerAppAgents", () => {
             persona: "researcher",
             runtime: "claude",
             instructions: "Classify inbox items.",
-            skills: ["triage.md"],
+            routingTags: ["triage.md"],
           },
           {
             id: "writer",
@@ -102,7 +102,7 @@ describe("registerAppAgents", () => {
       runtimeKind: "claude",
       persona: "researcher",
     });
-    expect(triage.skills).toEqual(["triage.md"]);
+    expect(triage.routingTags).toEqual(["triage.md"]);
   });
 
   it("re-installing the same app idempotently replaces prior agents", async () => {
@@ -130,7 +130,9 @@ describe("registerAppAgents", () => {
         ],
       }),
     );
-    expect(second.removed).toBe(2);
+    // Agent B is removed (no longer in definition), A is updated, C is added.
+    // inserted includes both updated and new agents.
+    expect(second.removed).toBe(1);
     expect(second.inserted).toHaveLength(2);
 
     const rows = await listForApp("k3-app-y");

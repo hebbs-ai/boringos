@@ -86,14 +86,14 @@ export function ConnectorsHealthIndicator() {
 
       {open && (
         <div
-          className="mt-2 w-72 rounded-lg bg-white shadow-lg ring-1 ring-slate-200 overflow-hidden"
+          className="mt-2 w-72 rounded-lg bg-white shadow-lg ring-1 ring-border overflow-hidden"
           onClick={(e) => e.stopPropagation()}
         >
-          <ul className="divide-y divide-slate-100 max-h-72 overflow-auto">
+          <ul className="divide-y divide-border-subtle max-h-72 overflow-auto">
             {degraded.map((card) => (
               <li
                 key={card.kind}
-                className="px-3 py-2.5 flex items-start gap-2 hover:bg-slate-50 cursor-pointer"
+                className="px-3 py-2.5 flex items-start gap-2 hover:bg-bg cursor-pointer"
                 onClick={() => {
                   setOpen(false);
                   navigate("/connectors");
@@ -108,10 +108,10 @@ export function ConnectorsHealthIndicator() {
                   aria-hidden
                 />
                 <div className="min-w-0 flex-1">
-                  <div className="text-xs font-medium text-slate-900 truncate">
+                  <div className="text-xs font-medium text-text truncate">
                     {card.name}
                   </div>
-                  <div className="text-[11px] text-slate-500">
+                  <div className="text-[11px] text-muted">
                     {card.statusLabel}
                   </div>
                 </div>
@@ -119,7 +119,7 @@ export function ConnectorsHealthIndicator() {
             ))}
           </ul>
           <button
-            className="block w-full text-center text-xs font-medium text-slate-600 hover:bg-slate-50 px-3 py-2 border-t border-slate-100"
+            className="block w-full text-center text-xs font-medium text-muted-strong hover:bg-bg px-3 py-2 border-t border-border-subtle"
             onClick={() => {
               setOpen(false);
               navigate("/connectors");

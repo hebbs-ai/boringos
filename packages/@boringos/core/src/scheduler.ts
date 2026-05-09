@@ -1,9 +1,9 @@
 import { eq } from "drizzle-orm";
 import type { Db } from "@boringos/db";
 import { routines, tasks } from "@boringos/db";
-import type { AgentEngine } from "@boringos/agent";
-import type { WorkflowEngine } from "@boringos/workflow";
+import type { AgentEngine, ToolRegistry } from "@boringos/agent";
 import { generateId } from "@boringos/shared";
+import { runWorkflow } from "./run-workflow.js";
 
 export interface RoutineScheduler {
   start(): void;
@@ -15,13 +15,13 @@ export interface RoutineScheduler {
  * Checks every 60 seconds for routines whose cron expression matches the current minute.
  *
  * Routines can target either an agent (assigneeAgentId) or a workflow (workflowId).
- * When targeting a workflow, the workflow executes and may decide to wake an agent
- * via a wake-agent block — enabling "smart" routines that only spawn agents when needed.
+ * When targeting a workflow, the workflow runs through the v2 dispatcher's
+ * `workflow.run` tool — the same path admin-triggered runs use.
  */
 export function createRoutineScheduler(
   db: Db,
   engine: AgentEngine,
-  workflowEngine?: WorkflowEngine,
+  toolRegistry?: ToolRegistry,
 ): RoutineScheduler {
   let interval: ReturnType<typeof setInterval> | null = null;
 
@@ -31,16 +31,21 @@ export function createRoutineScheduler(
     for (const routine of activeRoutines) {
       if (shouldRun(routine.cronExpression, routine.timezone ?? "UTC")) {
         try {
-          if (routine.workflowId && workflowEngine) {
-            // Workflow-triggered routine — execute the workflow
-            await workflowEngine.execute(routine.workflowId, {
-              type: "routine",
-              data: {
-                routineId: routine.id,
-                routineTitle: routine.title,
+          if (routine.workflowId && toolRegistry) {
+            // Workflow-triggered routine — go through v2 dispatch.
+            await runWorkflow(
+              { db, toolRegistry },
+              {
+                workflowId: routine.workflowId,
                 tenantId: routine.tenantId,
+                payload: {
+                  routineId: routine.id,
+                  routineTitle: routine.title,
+                  triggerType: "routine",
+                },
+                invokedBy: "routine",
               },
-            });
+            );
           } else if (routine.assigneeAgentId) {
             // Agent-triggered routine — every wake must be bound to a
             // task, so create a fresh task per fire. The task is the

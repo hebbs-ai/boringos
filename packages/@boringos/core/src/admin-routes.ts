@@ -34,13 +34,16 @@ import {
   workflowRuns,
   workflowBlockRuns,
 } from "@boringos/db";
-import type { AgentEngine } from "@boringos/agent";
-import type { WorkflowEngine, TriggerType } from "@boringos/workflow";
+import type { AgentEngine, ToolRegistry } from "@boringos/agent";
 import type { RuntimeRegistry } from "@boringos/runtime";
-import type { ActionRunner } from "@boringos/connector";
+import type { StorageBackend } from "@boringos/drive";
 import { generateId } from "@boringos/shared";
 import type { RealtimeBus } from "./realtime.js";
+import type { EventBus } from "./event-bus.js";
 import { syncArchive, syncStatusChange } from "./inbox-gmail-sync.js";
+import { runWorkflow } from "./run-workflow.js";
+import { canAccess, validatePath, type Actor } from "./v2-modules/drive-acl.js";
+import { contentTypeFor } from "./drive-mime.js";
 
 type AdminEnv = {
   Variables: {
@@ -55,9 +58,11 @@ export function createAdminRoutes(
   engine: AgentEngine,
   adminKey: string,
   realtimeBus?: RealtimeBus,
-  workflowEngine?: WorkflowEngine,
+  toolRegistry?: ToolRegistry,
   runtimeRegistry?: RuntimeRegistry,
-  actionRunner?: ActionRunner,
+  eventBus?: EventBus,
+  drive?: StorageBackend,
+  settingRegistry?: import("@boringos/agent").SettingRegistry,
 ): Hono<AdminEnv> {
 
   function emit(type: string, tenantId: string, data: Record<string, unknown>) {
@@ -129,6 +134,78 @@ export function createAdminRoutes(
     return c.json({ agents: rows });
   });
 
+  // Fleet-wide stats for the cabinet header. Single round trip;
+  // computed server-side so the FleetHeader doesn't have to fan out
+  // to runs + wakeup queue + cost events itself.
+  // Must be before /agents/:id (path order).
+  app.get("/agents/stats", async (c) => {
+    const tenantId = c.get("tenantId");
+    const result = await db.execute(sql`
+      SELECT
+        (SELECT COUNT(*)::int FROM agents WHERE tenant_id = ${tenantId})                                       AS total,
+        (SELECT COUNT(*)::int FROM agents WHERE tenant_id = ${tenantId} AND status = 'running')               AS running_now,
+        (SELECT COUNT(*)::int FROM agents WHERE tenant_id = ${tenantId} AND status = 'paused')                AS paused_now,
+        (SELECT COUNT(*)::int FROM agents WHERE tenant_id = ${tenantId} AND status = 'idle')                  AS idle_now,
+        (SELECT COUNT(*)::int FROM agent_wakeup_requests
+                              WHERE tenant_id = ${tenantId} AND status = 'pending')                            AS queue_depth,
+        (SELECT COUNT(*)::int FROM agent_runs
+                              WHERE tenant_id = ${tenantId}
+                                AND status = 'failed'
+                                AND COALESCE(started_at, created_at) > NOW() - INTERVAL '24 hours')           AS errors_24h,
+        (SELECT COALESCE(SUM((NULLIF(cost_usd,'')::float8) * 100)::int, 0)
+           FROM cost_events
+          WHERE tenant_id = ${tenantId}
+            AND created_at > date_trunc('day', NOW()))                                                         AS spent_today_cents,
+        (SELECT COALESCE(SUM(spent_monthly_cents), 0)::int
+           FROM agents WHERE tenant_id = ${tenantId})                                                          AS spent_month_cents
+    `);
+    const row = (result as unknown as Array<Record<string, number>>)[0] ?? {};
+    return c.json({
+      total: row.total ?? 0,
+      runningNow: row.running_now ?? 0,
+      pausedNow: row.paused_now ?? 0,
+      idleNow: row.idle_now ?? 0,
+      queueDepth: row.queue_depth ?? 0,
+      errors24h: row.errors_24h ?? 0,
+      spentTodayCents: row.spent_today_cents ?? 0,
+      spentMonthCents: row.spent_month_cents ?? 0,
+    });
+  });
+
+  // 7-day activity counts per agent — one row per agent per day,
+  // bucketed in UTC. Used by the cards-grid sparkline. Single round
+  // trip for the whole tenant (typical: 5–15 agents × 7 days = 35–105
+  // buckets) — server formats so the client just renders.
+  // Must be before /agents/:id (path order).
+  app.get("/agents/activity", async (c) => {
+    const tenantId = c.get("tenantId");
+    const window = c.req.query("window");
+    const days = window === "30d" ? 30 : 7;
+    const result = await db.execute(sql`
+      SELECT
+        agent_id::text                                                AS "agentId",
+        TO_CHAR(date_trunc('day', COALESCE(started_at, created_at)),
+                'YYYY-MM-DD')                                          AS "day",
+        COUNT(*)::int                                                  AS "count"
+      FROM agent_runs
+      WHERE tenant_id = ${tenantId}
+        AND COALESCE(started_at, created_at) > NOW() - (${days} || ' days')::interval
+      GROUP BY agent_id, date_trunc('day', COALESCE(started_at, created_at))
+      ORDER BY agent_id, day
+    `);
+    const rows = result as unknown as Array<{ agentId: string; day: string; count: number }>;
+    const out: Record<string, Record<string, number>> = {};
+    for (const r of rows) {
+      let bucket = out[r.agentId];
+      if (!bucket) {
+        bucket = {};
+        out[r.agentId] = bucket;
+      }
+      bucket[r.day] = r.count;
+    }
+    return c.json({ activity: out, days });
+  });
+
   // Must be before /agents/:id to avoid ":id" matching "org-tree"
   app.get("/agents/org-tree", async (c) => {
     try {
@@ -153,7 +230,12 @@ export function createAdminRoutes(
     const body = await c.req.json() as Record<string, unknown>;
     const id = generateId();
     const tenantId = c.get("tenantId");
-    const skills = Array.isArray(body.skills) ? (body.skills as string[]).filter((s) => typeof s === "string") : [];
+    // Accept both `routingTags` (new) and `skills` (legacy) on the create
+    // payload for one release; the column is `routing_tags`.
+    const tagsSrc = body.routingTags ?? body.skills;
+    const routingTags = Array.isArray(tagsSrc)
+      ? (tagsSrc as unknown[]).filter((s): s is string => typeof s === "string")
+      : [];
 
     // Task 07: Provenance tracking
     const source = (body.source as string) ?? "user";
@@ -187,7 +269,7 @@ export function createAdminRoutes(
       reportsTo,
       source,
       sourceAppId: sourceAppId ?? null,
-      skills,
+      routingTags,
     });
     const rows = await db.select().from(agents).where(eq(agents.id, id)).limit(1);
     emit("agent:created", tenantId, { agentId: id, name: body.name });
@@ -222,13 +304,18 @@ export function createAdminRoutes(
     if (body.name !== undefined) values.name = body.name;
     if (body.role !== undefined) values.role = body.role;
     if (body.title !== undefined) values.title = body.title;
+    if (body.icon !== undefined) values.icon = body.icon;
     if (body.instructions !== undefined) values.instructions = body.instructions;
     if (body.status !== undefined) values.status = body.status;
     if (body.runtimeId !== undefined) values.runtimeId = body.runtimeId;
     if (body.fallbackRuntimeId !== undefined) values.fallbackRuntimeId = body.fallbackRuntimeId;
     if (body.budgetMonthlyCents !== undefined) values.budgetMonthlyCents = body.budgetMonthlyCents;
-    if (body.skills !== undefined) {
-      values.skills = Array.isArray(body.skills) ? (body.skills as unknown[]).filter((s) => typeof s === "string") : [];
+    // Accept both keys on PATCH for one release; new = routingTags.
+    const tagsBody = body.routingTags !== undefined ? body.routingTags : body.skills;
+    if (tagsBody !== undefined) {
+      values.routingTags = Array.isArray(tagsBody)
+        ? (tagsBody as unknown[]).filter((s): s is string => typeof s === "string")
+        : [];
     }
 
     // When archiving an agent, reparent reports to the archived agent's manager (grandparent).
@@ -282,28 +369,36 @@ export function createAdminRoutes(
     return c.json(rows[0]);
   });
 
-  // Dedicated skills endpoint: cheaper than round-tripping the whole array for edits
-  app.patch("/agents/:id/skills", async (c) => {
+  // Dedicated routing-tags endpoint: cheaper than round-tripping the
+  // whole array for edits. Originally `/agents/:id/skills`; renamed in
+  // task_15 §1 to disambiguate from prompt skills (modules + curated
+  // company_skills). Both paths point at the same handler for one
+  // release as a deprecation grace period.
+  const patchRoutingTags = async (c: import("hono").Context<AdminEnv>) => {
     const denied = requireAdmin(c); if (denied) return denied;
+    const agentId = c.req.param("id") as string;
     const body = await c.req.json() as { add?: string[]; remove?: string[]; set?: string[] };
     const rows = await db.select().from(agents).where(
-      and(eq(agents.id, c.req.param("id")), eq(agents.tenantId, c.get("tenantId"))),
+      and(eq(agents.id, agentId), eq(agents.tenantId, c.get("tenantId"))),
     ).limit(1);
     if (!rows[0]) return c.json({ error: "Agent not found" }, 404);
     let next: string[];
     if (Array.isArray(body.set)) {
       next = body.set.filter((s) => typeof s === "string");
     } else {
-      const current = Array.isArray(rows[0].skills) ? rows[0].skills as string[] : [];
+      const current = Array.isArray(rows[0].routingTags) ? rows[0].routingTags as string[] : [];
       const afterRemove = Array.isArray(body.remove)
         ? current.filter((s) => !body.remove!.includes(s))
         : current;
       const add = Array.isArray(body.add) ? body.add.filter((s) => typeof s === "string" && !afterRemove.includes(s)) : [];
       next = [...afterRemove, ...add];
     }
-    await db.update(agents).set({ skills: next, updatedAt: new Date() }).where(eq(agents.id, c.req.param("id")));
-    return c.json({ agentId: c.req.param("id"), skills: next });
-  });
+    await db.update(agents).set({ routingTags: next, updatedAt: new Date() }).where(eq(agents.id, agentId));
+    // Return both keys so legacy clients keep working.
+    return c.json({ agentId, routingTags: next, skills: next });
+  };
+  app.patch("/agents/:id/routing-tags", patchRoutingTags);
+  app.patch("/agents/:id/skills", patchRoutingTags); // deprecated alias
 
   app.post("/agents/:id/wake", async (c) => {
     const denied = requireAdmin(c); if (denied) return denied;
@@ -538,6 +633,20 @@ export function createAdminRoutes(
       }
     }
 
+    // Auto-resolve copilot tasks to the tenant's copilot agent when
+    // the caller didn't specify one. The shell's "+ New session"
+    // button posts {originKind: "copilot"} with no assignee — without
+    // this, the task lands unassigned and the auto-wake-on-comment
+    // hook has nothing to fire.
+    let resolvedAssigneeAgentId = body.assigneeAgentId as string | undefined;
+    if (!resolvedAssigneeAgentId && body.originKind === "copilot") {
+      const copilotRows = await db.select({ id: agents.id })
+        .from(agents)
+        .where(and(eq(agents.tenantId, tenantId), eq(agents.role, "copilot")))
+        .limit(1);
+      resolvedAssigneeAgentId = copilotRows[0]?.id;
+    }
+
     await db.insert(tasks).values({
       id,
       tenantId,
@@ -545,7 +654,7 @@ export function createAdminRoutes(
       description: body.description as string | undefined,
       status: (body.status as string) ?? "todo",
       priority: (body.priority as string) ?? "medium",
-      assigneeAgentId: body.assigneeAgentId as string | undefined,
+      assigneeAgentId: resolvedAssigneeAgentId,
       // Default assignee = current user, but only when no agent is
       // assigned. Setting both fields creates ambiguity (whose
       // queue does it land in?) and the auto-wake-on-comment hook
@@ -553,7 +662,7 @@ export function createAdminRoutes(
       // to live on the user's todo list.
       assigneeUserId:
         (body.assigneeUserId as string) ??
-        (body.assigneeAgentId ? undefined : c.get("userId") ?? undefined),
+        (resolvedAssigneeAgentId ? undefined : c.get("userId") ?? undefined),
       // Stamp the creating user — needed for the "My todos" /
       // "Watching" filters in the Tasks UI to distinguish "I made
       // this" from "an agent made this." Without it, tasks created
@@ -564,6 +673,7 @@ export function createAdminRoutes(
       identifier,
       originKind: (body.originKind as string) ?? "manual",
       proposedParams: body.proposedParams as Record<string, unknown> | undefined,
+      metadata: body.metadata as Record<string, unknown> | undefined,
     });
     const rows = await db.select().from(tasks).where(eq(tasks.id, id)).limit(1);
     emit("task:created", c.get("tenantId"), { taskId: id, title: body.title });
@@ -580,12 +690,111 @@ export function createAdminRoutes(
     if (body.priority !== undefined) values.priority = body.priority;
     if (body.assigneeAgentId !== undefined) values.assigneeAgentId = body.assigneeAgentId;
     if (body.assigneeUserId !== undefined) values.assigneeUserId = body.assigneeUserId;
+    if (body.nextActor !== undefined) values.nextActor = body.nextActor;
+    if (body.metadata !== undefined) values.metadata = body.metadata;
+
+    // If the title was changed and the caller didn't supply a metadata
+    // override, clear `titleAuto` — a manual rename should pin the
+    // title (no future agent run silently overwrites human-chosen
+    // words).
+    if (body.title !== undefined && body.metadata === undefined) {
+      const existing = await db.select({ metadata: tasks.metadata })
+        .from(tasks)
+        .where(and(eq(tasks.id, c.req.param("id")), eq(tasks.tenantId, c.get("tenantId"))))
+        .limit(1);
+      const meta = (existing[0]?.metadata as Record<string, unknown> | null) ?? {};
+      if (meta.titleAuto === true) {
+        values.metadata = { ...meta, titleAuto: false };
+      }
+    }
 
     await db.update(tasks).set(values).where(
       and(eq(tasks.id, c.req.param("id")), eq(tasks.tenantId, c.get("tenantId"))),
     );
     const rows = await db.select().from(tasks).where(eq(tasks.id, c.req.param("id"))).limit(1);
     return c.json(rows[0]);
+  });
+
+  // POST /tasks/:id/send-to-agent — the human's "Send back to agent"
+  // button. Flips next_actor='agent' and wakes the assigned agent so
+  // the conversation resumes. Optional body: { comment } — appended as
+  // a task comment before the wake so the agent reads it on next pass.
+  app.post("/tasks/:id/send-to-agent", async (c) => {
+    const taskId = c.req.param("id");
+    const tenantId = c.get("tenantId");
+    let body: Record<string, unknown> = {};
+    try { body = await c.req.json() as Record<string, unknown>; } catch { /* empty body OK */ }
+
+    const taskRows = await db.select().from(tasks).where(
+      and(eq(tasks.id, taskId), eq(tasks.tenantId, tenantId)),
+    ).limit(1);
+    const task = taskRows[0];
+    if (!task) return c.json({ error: "Task not found" }, 404);
+    if (!task.assigneeAgentId) {
+      return c.json({ error: "Task has no agent assignee — assign one first" }, 400);
+    }
+    if (task.status === "done" || task.status === "cancelled") {
+      return c.json({ error: `Task is ${task.status}; reopen first` }, 400);
+    }
+
+    if (typeof body.comment === "string" && body.comment.trim().length > 0) {
+      const userId = c.get("userId");
+      const { taskComments } = await import("@boringos/db");
+      await db.insert(taskComments).values({
+        id: generateId(),
+        taskId,
+        tenantId,
+        body: body.comment,
+        authorUserId: userId,
+      });
+    }
+
+    await db.update(tasks).set({
+      nextActor: "agent",
+      updatedAt: new Date(),
+    }).where(eq(tasks.id, taskId));
+
+    const outcome = await engine.wake({
+      agentId: task.assigneeAgentId,
+      tenantId,
+      taskId,
+      reason: "comment_posted",
+    });
+    if (outcome.kind === "created") {
+      await engine.enqueue(outcome.wakeupRequestId);
+    }
+    return c.json({ ok: true, wakeOutcome: outcome });
+  });
+
+  // POST /tasks/:id/mark-done — the human's "Mark done" button. Closes
+  // the task. The DB trigger nulls next_actor automatically. Optional
+  // closing comment.
+  app.post("/tasks/:id/mark-done", async (c) => {
+    const taskId = c.req.param("id");
+    const tenantId = c.get("tenantId");
+    let body: Record<string, unknown> = {};
+    try { body = await c.req.json() as Record<string, unknown>; } catch { /* empty body OK */ }
+
+    if (typeof body.comment === "string" && body.comment.trim().length > 0) {
+      const userId = c.get("userId");
+      const { taskComments } = await import("@boringos/db");
+      await db.insert(taskComments).values({
+        id: generateId(),
+        taskId,
+        tenantId,
+        body: body.comment,
+        authorUserId: userId,
+      });
+    }
+
+    await db.update(tasks).set({
+      status: "done",
+      completedAt: new Date(),
+      updatedAt: new Date(),
+    }).where(
+      and(eq(tasks.id, taskId), eq(tasks.tenantId, tenantId)),
+    );
+    return c.json({ ok: true });
   });
 
   app.delete("/tasks/:id", async (c) => {
@@ -748,28 +957,74 @@ export function createAdminRoutes(
     await logActivity(tenantId, "comment.created", "task_comment", id, { taskId });
 
     // Auto-wake on user comment.
-    //  - If the task is assigned to an agent → wake the assignee (handles
-    //    copilot sessions, delegated work, etc.).
-    //  - Otherwise, if the task was created by an agent (typical human_todo
-    //    case: agent proposes a follow-up question, user answers in a
-    //    comment) → wake the creator so the answer can flow back into
-    //    whatever state the creator owns (dossier, intelligence, plan).
-    // Either way the agent receives the task + comments in its context.
+    //
+    // Posting a comment on an open task with an agent assignee always
+    // wakes the agent. This is what copilot's chat UX rides on — the
+    // comment IS the message, the wake IS the response trigger.
+    //
+    // Loop safety lives one layer up: agent runs flip next_actor to
+    // 'human' on completion (afterRun hook), and the auto-rewake check
+    // in boringos.ts only re-fires on next_actor='agent'. So a single
+    // user comment produces one run, then the task hands back. The
+    // agent's own comment is excluded by the !authorAgentId guard.
+    //
+    // We also flip next_actor='agent' here so the just-woken run sees
+    // the task in the right handoff state (the explicit
+    // /send-to-agent endpoint does the same thing, plus a banner-
+    // friendly response shape).
     if (!body.authorAgentId) {
       const taskRows = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1);
       const task = taskRows[0];
-      const wakeTargetAgentId = task?.assigneeAgentId ?? task?.createdByAgentId ?? null;
-      if (wakeTargetAgentId) {
-        const outcome = await engine.wake({
-          agentId: wakeTargetAgentId,
-          tenantId,
-          reason: "comment_posted",
-          taskId,
-        });
-        if (outcome.kind === "created") {
-          await engine.enqueue(outcome.wakeupRequestId);
+      if (task && task.status !== "done" && task.status !== "cancelled") {
+        // First-message title heuristic for copilot sessions. Replaces
+        // the literal "Copilot conversation" placeholder with something
+        // content-bearing the moment the user's first message lands —
+        // before the agent has even replied. The persona's first-reply
+        // rule still refines this into a proper 3-6 word summary.
+        // We only fire when:
+        //   - origin is copilot (so we don't muck with manual tasks)
+        //   - metadata.titleAuto is true (placeholder hasn't been
+        //     refined or user-edited yet)
+        //   - this is the first user comment (no prior comments at all
+        //     before this one — counted via task_comments rows)
+        if (
+          task.originKind === "copilot" &&
+          (task.metadata as Record<string, unknown> | null)?.titleAuto === true
+        ) {
+          const priorRows = await db.execute(sql`
+            SELECT COUNT(*)::int AS n FROM task_comments WHERE task_id = ${taskId}
+          `);
+          const priorCount = (priorRows as unknown as Array<{ n: number }>)[0]?.n ?? 0;
+          // We just inserted this comment, so n = 1 means "this is the
+          // first comment ever on the task." The agent's auto-posted
+          // result on the prior wake (if any) would already make it >1.
+          if (priorCount <= 1) {
+            const heuristic = derivePlaceholderTitleAdmin(body.body as string);
+            if (heuristic) {
+              await db.update(tasks)
+                .set({ title: heuristic, updatedAt: new Date() })
+                .where(eq(tasks.id, taskId));
+            }
+          }
         }
-        return c.json({ id, agentWoken: true, wakeup: outcome.kind }, 201);
+        const wakeTargetAgentId = task.assigneeAgentId ?? task.createdByAgentId ?? null;
+        if (wakeTargetAgentId) {
+          if (task.nextActor !== "agent") {
+            await db.update(tasks)
+              .set({ nextActor: "agent", updatedAt: new Date() })
+              .where(eq(tasks.id, taskId));
+          }
+          const outcome = await engine.wake({
+            agentId: wakeTargetAgentId,
+            tenantId,
+            reason: "comment_posted",
+            taskId,
+          });
+          if (outcome.kind === "created") {
+            await engine.enqueue(outcome.wakeupRequestId);
+          }
+          return c.json({ id, agentWoken: true, wakeup: outcome.kind }, 201);
+        }
       }
     }
 
@@ -1234,12 +1489,22 @@ export function createAdminRoutes(
     const routine = rows[0];
     if (!routine) return c.json({ error: "Routine not found" }, 404);
 
-    if (routine.workflowId && workflowEngine) {
-      const result = await workflowEngine.execute(routine.workflowId, {
-        type: "routine",
-        data: { routineId: routine.id, routineTitle: routine.title, tenantId: c.get("tenantId") },
+    if (routine.workflowId && toolRegistry) {
+      const result = await runWorkflow(
+        { db, toolRegistry },
+        {
+          workflowId: routine.workflowId,
+          tenantId: c.get("tenantId"),
+          payload: { routineId: routine.id, routineTitle: routine.title, triggerType: "routine" },
+          invokedBy: "admin",
+        },
+      );
+      return c.json({
+        kind: "workflow_executed",
+        runId: result.runId,
+        status: result.ok ? "completed" : "failed",
+        error: result.error?.message,
       });
-      return c.json({ kind: "workflow_executed", runId: result.runId, status: result.status });
     }
 
     if (!routine.assigneeAgentId) {
@@ -1333,21 +1598,41 @@ export function createAdminRoutes(
    * letting users "run now" without waiting for cron.
    */
   app.post("/workflows/:id/execute", async (c) => {
-    if (!workflowEngine) return c.json({ error: "workflow engine not available" }, 503);
-    const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
-    // Background mode so the HTTP response returns the runId immediately
-    // and the user can navigate to the run detail page mid-execution.
-    // Without this, a long-running workflow blocks the response and the
-    // user only ever sees the final state.
-    const result = await workflowEngine.execute(c.req.param("id"), {
-      type: "manual",
-      data: (body.payload as Record<string, unknown> | undefined) ?? {},
-    }, { background: true });
+    if (!toolRegistry) return c.json({ error: "v2 dispatcher not available" }, 503);
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const result = await runWorkflow(
+      { db, toolRegistry },
+      {
+        workflowId: c.req.param("id"),
+        tenantId: c.get("tenantId"),
+        payload: (body.payload as Record<string, unknown> | undefined) ?? {},
+        invokedBy: "admin",
+      },
+    );
     return c.json({
       runId: result.runId,
-      status: result.status,
-      error: result.error,
-      awaitingActionTaskId: result.awaitingActionTaskId,
+      status: result.ok ? "completed" : "failed",
+      error: result.error?.message,
+    });
+  });
+
+  // Alias used by the shell's Workflows screen.
+  app.post("/workflows/:id/run", async (c) => {
+    if (!toolRegistry) return c.json({ error: "v2 dispatcher not available" }, 503);
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const result = await runWorkflow(
+      { db, toolRegistry },
+      {
+        workflowId: c.req.param("id"),
+        tenantId: c.get("tenantId"),
+        payload: (body.payload as Record<string, unknown> | undefined) ?? {},
+        invokedBy: "admin",
+      },
+    );
+    return c.json({
+      runId: result.runId,
+      status: result.ok ? "completed" : "failed",
+      error: result.error?.message,
     });
   });
 
@@ -1403,18 +1688,46 @@ export function createAdminRoutes(
    * with user input, and walks the rest of the DAG.
    */
   app.post("/workflow-runs/:id/resume", async (c) => {
-    if (!workflowEngine) return c.json({ error: "workflow engine not available" }, 503);
-    const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
-    const result = await workflowEngine.resume(
-      c.req.param("id"),
-      (body.userInput as Record<string, unknown> | undefined) ?? {},
+    // v1 wait-for-human resume isn't ported to v2. Workflows that
+    // need human-in-the-loop should use an `agent_action` task and
+    // re-trigger the workflow from a comment instead.
+    void c;
+    return c.json(
+      { error: "Workflow resume is not supported in v2." },
+      410,
     );
-    return c.json({
-      runId: result.runId,
-      status: result.status,
-      error: result.error,
-      awaitingActionTaskId: result.awaitingActionTaskId,
-    });
+  });
+
+  /**
+   * Fork a past run from a specific block. Reuses upstream block outputs
+   * from the source run, optionally overrides the fork-block's resolved
+   * inputs, and re-runs the rest of the DAG. Powers the shell's
+   * "Replay from this step" UX.
+   */
+  app.post("/workflow-runs/:id/fork", async (c) => {
+    if (!toolRegistry) return c.json({ error: "v2 dispatcher not available" }, 503);
+    const tenantId = c.get("tenantId") as string;
+    const body = (await c.req.json().catch(() => ({}))) as {
+      fromBlockId?: string;
+      editedInputs?: Record<string, unknown>;
+    };
+    if (!body.fromBlockId) {
+      return c.json({ error: "fromBlockId required" }, 400);
+    }
+    const dispatched = await (await import("@boringos/agent")).dispatch(
+      { registry: toolRegistry, db },
+      "workflow.fork_run",
+      {
+        runId: c.req.param("id"),
+        fromBlockId: body.fromBlockId,
+        editedInputs: body.editedInputs,
+      },
+      { tenantId, invokedBy: "admin" },
+    );
+    if (!dispatched.result.ok) {
+      return c.json({ error: dispatched.result.error.message, details: dispatched.result.error.details }, 400);
+    }
+    return c.json(dispatched.result.result);
   });
 
   /**
@@ -1428,13 +1741,12 @@ export function createAdminRoutes(
    * "does this still happen?" tool, not a "reproduce byte-for-byte" tool.
    */
   app.post("/workflow-runs/:id/replay", async (c) => {
-    if (!workflowEngine) return c.json({ error: "workflow engine not available" }, 503);
+    if (!toolRegistry) return c.json({ error: "v2 dispatcher not available" }, 503);
     const tenantId = c.get("tenantId") as string;
 
     const runRows = await db.select({
       id: workflowRuns.id,
       workflowId: workflowRuns.workflowId,
-      triggerType: workflowRuns.triggerType,
       triggerPayload: workflowRuns.triggerPayload,
     }).from(workflowRuns).where(
       and(eq(workflowRuns.id, c.req.param("id")), eq(workflowRuns.tenantId, tenantId)),
@@ -1443,15 +1755,19 @@ export function createAdminRoutes(
     const original = runRows[0];
     if (!original) return c.json({ error: "run not found" }, 404);
 
-    const triggerType = (original.triggerType ?? "manual") as TriggerType;
-    const result = await workflowEngine.execute(original.workflowId, {
-      type: triggerType,
-      data: (original.triggerPayload as Record<string, unknown> | null) ?? {},
-    }, { background: true });
+    const result = await runWorkflow(
+      { db, toolRegistry },
+      {
+        workflowId: original.workflowId,
+        tenantId,
+        payload: (original.triggerPayload as Record<string, unknown> | null) ?? {},
+        invokedBy: "admin",
+      },
+    );
     return c.json({
       runId: result.runId,
-      status: result.status,
-      error: result.error,
+      status: result.ok ? "completed" : "failed",
+      error: result.error?.message,
       replayedFromRunId: original.id,
     });
   });
@@ -1561,11 +1877,35 @@ export function createAdminRoutes(
     return c.json({ settings });
   });
 
+  // GET /settings/manifest — every SettingDefinition declared by an
+  // installed module + the framework's own keys. The shell uses this
+  // to auto-render Settings → General. See task_17.
+  app.get("/settings/manifest", (c) => {
+    if (!settingRegistry) {
+      return c.json({ settings: [], defaults: {} });
+    }
+    return c.json({
+      settings: settingRegistry.list(),
+      defaults: settingRegistry.defaults(),
+    });
+  });
+
   app.patch("/settings", async (c) => {
     const denied = requireAdmin(c); if (denied) return denied;
     const body = await c.req.json() as Record<string, unknown>;
     const { tenantSettings } = await import("@boringos/db");
     const tenantId = c.get("tenantId");
+
+    // Validate against the manifest. Unknown keys pass through (the
+    // host writes ad-hoc keys today — be permissive); declared keys
+    // must match their type / select / etc.
+    if (settingRegistry) {
+      for (const [key, value] of Object.entries(body)) {
+        if (value === null) continue;
+        const err = settingRegistry.validateValue(key, value);
+        if (err) return c.json({ error: err }, 400);
+      }
+    }
 
     for (const [key, value] of Object.entries(body)) {
       const strValue = value === null ? null : String(value);
@@ -1641,8 +1981,101 @@ export function createAdminRoutes(
     const prefix = c.req.query("path");
     const rows = await db.select().from(driveFiles).where(eq(driveFiles.tenantId, c.get("tenantId")));
     let filtered = rows;
-    if (prefix) filtered = rows.filter((r) => r.path.startsWith(prefix));
+    if (prefix) {
+      const p = prefix.replace(/^\/+|\/+$/g, "");
+      filtered = rows.filter((r) => r.path.startsWith(p));
+    }
+    // ACL — hide other users' private folders from non-admins.
+    const userId = c.get("userId");
+    const role = c.get("role");
+    if (userId && role !== "admin") {
+      filtered = filtered.filter((r) => {
+        if (!r.path.startsWith("users/")) return true;
+        const seg = r.path.split("/")[1] ?? "";
+        return seg === userId;
+      });
+    }
     return c.json({ files: filtered });
+  });
+
+  // GET /api/admin/drive/file/<path>  →  streams the file bytes.
+  // The browser can use this URL directly in <img>/<a>/<iframe>;
+  // the auth middleware accepts session via Authorization header
+  // OR `?token=<session>` query param so img tags work without
+  // JS-fetched blobs.
+  app.get("/drive/file/*", async (c) => {
+    if (!drive) {
+      return c.json({ error: "drive backend not configured" }, 503);
+    }
+    // Hono's wildcard captures the rest of the path. We strip the
+    // route prefix manually because c.req.param("*") behaviour
+    // varies between Hono versions.
+    const url = new URL(c.req.url);
+    const fullPath = decodeURIComponent(url.pathname);
+    const marker = "/drive/file/";
+    const idx = fullPath.indexOf(marker);
+    const rawPath = idx >= 0 ? fullPath.slice(idx + marker.length) : "";
+
+    const v = validatePath(rawPath);
+    if (!v.ok) {
+      return c.json({ error: `invalid path: ${v.reason}` }, 400);
+    }
+    const path = v.path;
+
+    const tenantId = c.get("tenantId");
+    const userId = c.get("userId");
+    const role = c.get("role");
+    // API-key callers (machine actors) are treated as admins for
+    // the purposes of cross-user reads — they're the framework's
+    // own service identity, not an end user.
+    const actor: Actor = userId
+      ? { kind: "user", userId, role: role ?? "member" }
+      : { kind: "user", userId: "system", role: "admin" };
+
+    const decision = canAccess(actor, "read", path);
+    if (!decision.ok) {
+      return c.json({ error: decision.reason }, 403);
+    }
+
+    const tenantPath = `${tenantId}/${path}`;
+
+    // ETag from the driveFiles index — lets browsers skip re-fetching
+    // an unchanged image embedded in many comments.
+    const fileRow = (
+      await db
+        .select()
+        .from(driveFiles)
+        .where(and(eq(driveFiles.tenantId, tenantId), eq(driveFiles.path, path)))
+        .limit(1)
+    )[0];
+
+    const etag = fileRow?.hash ? `"${fileRow.hash}"` : null;
+    if (etag && c.req.header("If-None-Match") === etag) {
+      return new Response(null, { status: 304, headers: { ETag: etag } });
+    }
+
+    let bytes: Uint8Array;
+    try {
+      bytes = await drive.read(tenantPath);
+    } catch (err) {
+      // Distinguish missing file from other failures so a clean 404
+      // arrives at the browser.
+      const msg = err instanceof Error ? err.message : String(err);
+      const code = /ENOENT|not found|no such file/i.test(msg) ? 404 : 500;
+      return c.json({ error: msg }, code);
+    }
+
+    const ct = contentTypeFor(path);
+    const filename = path.split("/").pop() ?? "file";
+    const headers: Record<string, string> = {
+      "Content-Type": ct,
+      "Content-Length": String(bytes.byteLength),
+      "Cache-Control": "private, max-age=60, must-revalidate",
+      "Content-Disposition": `inline; filename="${filename.replace(/"/g, "")}"`,
+    };
+    if (etag) headers["ETag"] = etag;
+
+    return new Response(bytes, { status: 200, headers });
   });
 
   app.get("/drive/skill", async (c) => {
@@ -1803,14 +2236,7 @@ export function createAdminRoutes(
     if (rows[0].status === "unread") {
       await db.update(inboxItems).set({ status: "read", updatedAt: new Date() }).where(eq(inboxItems.id, rows[0].id));
       // Mirror to Gmail: remove UNREAD label.
-      if (actionRunner) {
-        void syncStatusChange(
-          { db, actionRunner },
-          c.get("tenantId"),
-          rows[0].id,
-          "read",
-        );
-      }
+      void syncStatusChange({ db }, c.get("tenantId"), rows[0].id, "read");
     }
 
     return c.json(rows[0]);
@@ -1835,22 +2261,69 @@ export function createAdminRoutes(
 
     const itemId = c.req.param("id");
     const tenantId = c.get("tenantId");
+
+    // Snapshot prior triage so we can decide whether to fire
+    // `triage.classified` after the write below. Without this the
+    // generic-replier never wakes for items written via this route
+    // (e.g. CRM email-lens / shell direct edits).
+    let priorTriageSig: string | null = null;
+    if (eventBus && body.metadata !== undefined) {
+      const priorRows = await db
+        .select({ metadata: inboxItems.metadata })
+        .from(inboxItems)
+        .where(and(eq(inboxItems.id, itemId), eq(inboxItems.tenantId, tenantId)))
+        .limit(1);
+      const priorMeta = (priorRows[0]?.metadata ?? null) as Record<string, unknown> | null;
+      const priorTriage = priorMeta?.triage as { classification?: unknown; score?: unknown } | undefined;
+      priorTriageSig = priorTriage
+        ? `${String(priorTriage.classification ?? "")}|${String(priorTriage.score ?? "")}`
+        : null;
+    }
+
     await db.update(inboxItems).set(values).where(
       and(eq(inboxItems.id, itemId), eq(inboxItems.tenantId, tenantId)),
     );
     // Mirror status changes to Gmail. Fire-and-forget — local state is
     // source of truth; Gmail can lag without rolling back the user's
     // action.
-    if (actionRunner && body.status !== undefined && typeof body.status === "string") {
-      void syncStatusChange(
-        { db, actionRunner },
-        tenantId,
-        itemId,
-        body.status,
-      );
+    if (body.status !== undefined && typeof body.status === "string") {
+      void syncStatusChange({ db }, tenantId, itemId, body.status);
     }
     const rows = await db.select().from(inboxItems).where(eq(inboxItems.id, itemId)).limit(1);
     if (!rows[0]) return c.json({ error: "Inbox item not found" }, 404);
+
+    if (eventBus && body.metadata !== undefined) {
+      const nextMeta = body.metadata as Record<string, unknown> | null;
+      const nextTriage = nextMeta?.triage as
+        | { classification?: unknown; score?: unknown; rationale?: unknown; source?: unknown }
+        | undefined;
+      if (nextTriage) {
+        const nextSig = `${String(nextTriage.classification ?? "")}|${String(nextTriage.score ?? "")}`;
+        if (nextSig !== priorTriageSig) {
+          try {
+            await eventBus.emit({
+              connectorKind: "framework",
+              type: "triage.classified",
+              tenantId,
+              timestamp: new Date(),
+              data: {
+                itemId,
+                classification: nextTriage.classification ?? null,
+                score: nextTriage.score ?? null,
+                source: nextTriage.source ?? "admin",
+                rationale: nextTriage.rationale ?? null,
+              },
+            });
+          } catch (err) {
+            console.warn(
+              `[admin /inbox PATCH] triage.classified emit failed for item=${itemId}:`,
+              err instanceof Error ? err.message : err,
+            );
+          }
+        }
+      }
+    }
+
     return c.json(rows[0]);
   });
 
@@ -1862,9 +2335,7 @@ export function createAdminRoutes(
       archivedAt: new Date(),
       updatedAt: new Date(),
     }).where(and(eq(inboxItems.id, itemId), eq(inboxItems.tenantId, tenantId)));
-    if (actionRunner) {
-      void syncArchive({ db, actionRunner }, tenantId, itemId);
-    }
+    void syncArchive({ db }, tenantId, itemId);
     return c.json({ ok: true });
   });
 
@@ -1974,4 +2445,39 @@ export function createAdminRoutes(
   });
 
   return app;
+}
+
+/**
+ * First-message → placeholder copilot title.
+ *
+ * Mirror of the same helper in v2-modules/copilot.ts but kept local
+ * to avoid coupling admin-routes to the module. Both paths must
+ * produce the same shape so the user sees a consistent title-derivation
+ * rule whether they came through `start_session` (with initialMessage)
+ * or the shell's "New session + first comment" flow.
+ */
+function derivePlaceholderTitleAdmin(raw: string | undefined): string | null {
+  if (!raw) return null;
+  const collapsed = raw.replace(/\s+/g, " ").trim();
+  if (collapsed.length === 0) return null;
+
+  const stripped = collapsed
+    .replace(
+      /^(can\s+you|could\s+you|tell\s+me|show\s+me|help\s+me|help\s+with|please|hey|hi|hello|i\s+want\s+to|i\s+would\s+like\s+to|i'd\s+like\s+to|what's|whats|what\s+is|what|how\s+do\s+i|how\s+can\s+i|how|why|when|where)\b[\s,:.-]*/i,
+      "",
+    )
+    .trim();
+
+  const sentenceEnd = stripped.search(/[?!.]/);
+  let candidate = sentenceEnd > 0 ? stripped.slice(0, sentenceEnd) : stripped;
+
+  const MAX = 50;
+  if (candidate.length > MAX) {
+    const cut = candidate.slice(0, MAX);
+    const lastSpace = cut.lastIndexOf(" ");
+    candidate = (lastSpace > 20 ? cut.slice(0, lastSpace) : cut) + "…";
+  }
+  candidate = candidate.trim();
+  if (candidate.length < 3) return null;
+  return candidate.charAt(0).toUpperCase() + candidate.slice(1);
 }

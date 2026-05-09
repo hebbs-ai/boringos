@@ -3,6 +3,21 @@ import { useClient } from "./provider.js";
 
 // ── Agents ───────────────────────────────────────────────────────────────────
 
+type AgentUpdate = {
+  name?: string;
+  role?: string;
+  title?: string | null;
+  icon?: string | null;
+  instructions?: string | null;
+  status?: string;
+  runtimeId?: string | null;
+  fallbackRuntimeId?: string | null;
+  reportsTo?: string | null;
+  routingTags?: string[];
+  permissions?: Record<string, unknown>;
+  budgetMonthlyCents?: number;
+};
+
 export function useAgents() {
   const client = useClient();
   const queryClient = useQueryClient();
@@ -10,6 +25,7 @@ export function useAgents() {
   const query = useQuery({
     queryKey: ["agents"],
     queryFn: () => client.getAgents(),
+    refetchInterval: 5000,
   });
 
   const createAgent = useMutation({
@@ -19,9 +35,13 @@ export function useAgents() {
   });
 
   const updateAgent = useMutation({
-    mutationFn: (params: { agentId: string; data: { name?: string; role?: string; instructions?: string; status?: string; runtimeId?: string; fallbackRuntimeId?: string } }) =>
+    mutationFn: (params: { agentId: string; data: AgentUpdate }) =>
       client.updateAgent(params.agentId, params.data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["agents"] }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["agents"] });
+      queryClient.invalidateQueries({ queryKey: ["agent", variables.agentId] });
+      queryClient.invalidateQueries({ queryKey: ["orgTree"] });
+    },
   });
 
   const wakeAgent = useMutation({
@@ -39,6 +59,210 @@ export function useAgents() {
     wakeAgent: wakeAgent.mutateAsync,
     isCreating: createAgent.isPending,
     isUpdating: updateAgent.isPending,
+  };
+}
+
+export function useAgent(agentId: string | null) {
+  const client = useClient();
+  const queryClient = useQueryClient();
+
+  const query = useQuery({
+    queryKey: ["agent", agentId],
+    queryFn: () => client.getAgent(agentId!),
+    enabled: !!agentId,
+  });
+
+  const runsQuery = useQuery({
+    queryKey: ["agentRuns", agentId],
+    queryFn: () => client.getAgentRuns(agentId!),
+    enabled: !!agentId,
+    refetchInterval: 5000,
+  });
+
+  const update = useMutation({
+    mutationFn: (data: AgentUpdate) => client.updateAgent(agentId!, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["agent", agentId] });
+      queryClient.invalidateQueries({ queryKey: ["agents"] });
+      queryClient.invalidateQueries({ queryKey: ["orgTree"] });
+    },
+  });
+
+  const patchRoutingTags = useMutation({
+    mutationFn: (data: { add?: string[]; remove?: string[]; set?: string[] }) =>
+      client.patchAgentRoutingTags(agentId!, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["agent", agentId] });
+      queryClient.invalidateQueries({ queryKey: ["agents"] });
+    },
+  });
+
+  const wake = useMutation({
+    mutationFn: (taskId?: string) => client.wakeAgent(agentId!, taskId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["agent", agentId] });
+      queryClient.invalidateQueries({ queryKey: ["agentRuns", agentId] });
+      queryClient.invalidateQueries({ queryKey: ["runs"] });
+    },
+  });
+
+  return {
+    agent: query.data ?? null,
+    runs: runsQuery.data ?? [],
+    isLoading: query.isLoading,
+    error: query.error,
+    updateAgent: update.mutateAsync,
+    patchRoutingTags: patchRoutingTags.mutateAsync,
+    wakeAgent: wake.mutateAsync,
+    isUpdating: update.isPending,
+  };
+}
+
+export function useOrgTree() {
+  const client = useClient();
+  const query = useQuery({
+    queryKey: ["orgTree"],
+    queryFn: () => client.getOrgTree(),
+    refetchInterval: 10000,
+  });
+  return {
+    tree: query.data ?? [],
+    isLoading: query.isLoading,
+    error: query.error,
+  };
+}
+
+export function useAgentStats() {
+  const client = useClient();
+  const query = useQuery({
+    queryKey: ["agentStats"],
+    queryFn: () => client.getAgentStats(),
+    refetchInterval: 5000,
+  });
+  return {
+    stats: query.data ?? null,
+    isLoading: query.isLoading,
+    error: query.error,
+  };
+}
+
+export function useAgentActivity(window: "7d" | "30d" = "7d") {
+  const client = useClient();
+  const query = useQuery({
+    queryKey: ["agentActivity", window],
+    queryFn: () => client.getAgentActivity(window),
+    staleTime: 30_000,
+  });
+  return {
+    activity: query.data?.activity ?? {},
+    days: query.data?.days ?? (window === "30d" ? 30 : 7),
+    isLoading: query.isLoading,
+    error: query.error,
+  };
+}
+
+// ── Team + invitations ──────────────────────────────────────────────────────
+
+export function useTeam() {
+  const client = useClient();
+  const queryClient = useQueryClient();
+
+  const team = useQuery({
+    queryKey: ["team"],
+    queryFn: () => client.getTeam(),
+  });
+
+  const invitations = useQuery({
+    queryKey: ["invitations"],
+    queryFn: () => client.getInvitations(),
+  });
+
+  const updateRole = useMutation({
+    mutationFn: (params: { userId: string; role: string }) =>
+      client.updateTeamMemberRole(params.userId, params.role),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["team"] }),
+  });
+
+  const remove = useMutation({
+    mutationFn: (userId: string) => client.removeTeamMember(userId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["team"] }),
+  });
+
+  const invite = useMutation({
+    mutationFn: (data: { email: string; role?: string }) =>
+      client.createInvitation(data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["invitations"] }),
+  });
+
+  const revokeInvite = useMutation({
+    mutationFn: (invitationId: string) => client.deleteInvitation(invitationId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["invitations"] }),
+  });
+
+  return {
+    members: team.data ?? [],
+    invitations: invitations.data ?? [],
+    isLoading: team.isLoading || invitations.isLoading,
+    error: team.error ?? invitations.error,
+    updateRole: updateRole.mutateAsync,
+    removeMember: remove.mutateAsync,
+    invite: invite.mutateAsync,
+    revokeInvitation: revokeInvite.mutateAsync,
+    isInviting: invite.isPending,
+  };
+}
+
+// ── Activity ────────────────────────────────────────────────────────────────
+
+export function useActivity(filters?: { limit?: number }) {
+  const client = useClient();
+  const query = useQuery({
+    queryKey: ["activity", filters],
+    queryFn: () => client.getActivity(filters),
+    refetchInterval: 10000,
+  });
+  return {
+    rows: query.data ?? [],
+    isLoading: query.isLoading,
+    error: query.error,
+  };
+}
+
+// ── Skills (tenant-curated) ──────────────────────────────────────────────────
+
+export function useSkills() {
+  const client = useClient();
+  const queryClient = useQueryClient();
+
+  const query = useQuery({
+    queryKey: ["skills"],
+    queryFn: () => client.getSkills(),
+  });
+
+  const attach = useMutation({
+    mutationFn: (params: { skillId: string; agentId: string }) =>
+      client.attachSkill(params.skillId, params.agentId),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["agent", variables.agentId] });
+      queryClient.invalidateQueries({ queryKey: ["agents"] });
+    },
+  });
+
+  const detach = useMutation({
+    mutationFn: (params: { skillId: string; agentId: string }) =>
+      client.detachSkill(params.skillId, params.agentId),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["agent", variables.agentId] });
+      queryClient.invalidateQueries({ queryKey: ["agents"] });
+    },
+  });
+
+  return {
+    skills: query.data ?? [],
+    isLoading: query.isLoading,
+    error: query.error,
+    attachSkill: attach.mutateAsync,
+    detachSkill: detach.mutateAsync,
   };
 }
 
@@ -223,10 +447,179 @@ export function useSettings() {
   };
 }
 
+export function useSettingsManifest() {
+  const client = useClient();
+  const query = useQuery({
+    queryKey: ["settingsManifest"],
+    queryFn: () => client.getSettingsManifest(),
+    staleTime: 60_000,
+  });
+  return {
+    manifest: query.data ?? { settings: [], defaults: {} },
+    isLoading: query.isLoading,
+    error: query.error,
+  };
+}
+
 // `useApprovals` removed — approvals collapsed into tasks
 // (origin_kind="agent_action"). Use `useTasks()` and pick rows where
 // origin_kind is `agent_action`; the DecisionCard in the Tasks UI
 // is the approve/reject affordance.
+
+// ── Routines ──────────────────────────────────────────────────────────────
+
+export function useRoutines() {
+  const client = useClient();
+  const queryClient = useQueryClient();
+
+  const query = useQuery({
+    queryKey: ["routines"],
+    queryFn: () => client.getRoutines(),
+  });
+
+  const createRoutine = useMutation({
+    mutationFn: (data: Record<string, unknown>) => client.createRoutine(data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["routines"] }),
+  });
+
+  const updateRoutine = useMutation({
+    mutationFn: (params: { routineId: string; data: Record<string, unknown> }) =>
+      client.updateRoutine(params.routineId, params.data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["routines"] }),
+  });
+
+  const deleteRoutine = useMutation({
+    mutationFn: (routineId: string) => client.deleteRoutine(routineId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["routines"] }),
+  });
+
+  const triggerRoutine = useMutation({
+    mutationFn: (routineId: string) => client.triggerRoutine(routineId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["routines"] }),
+  });
+
+  return {
+    routines: query.data ?? [],
+    isLoading: query.isLoading,
+    error: query.error,
+    createRoutine: createRoutine.mutateAsync,
+    updateRoutine: updateRoutine.mutateAsync,
+    deleteRoutine: deleteRoutine.mutateAsync,
+    triggerRoutine: triggerRoutine.mutateAsync,
+  };
+}
+
+// ── Workflows ─────────────────────────────────────────────────────────────
+
+export function useWorkflows() {
+  const client = useClient();
+  const queryClient = useQueryClient();
+
+  const query = useQuery({
+    queryKey: ["workflows"],
+    queryFn: () => client.getWorkflows(),
+  });
+
+  const createWorkflow = useMutation({
+    mutationFn: (data: Record<string, unknown>) => client.createWorkflow(data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["workflows"] }),
+  });
+
+  const updateWorkflow = useMutation({
+    mutationFn: (params: { workflowId: string; data: Record<string, unknown> }) =>
+      client.updateWorkflow(params.workflowId, params.data),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["workflows"] }),
+  });
+
+  const deleteWorkflow = useMutation({
+    mutationFn: (workflowId: string) => client.deleteWorkflow(workflowId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["workflows"] }),
+  });
+
+  return {
+    workflows: query.data ?? [],
+    isLoading: query.isLoading,
+    error: query.error,
+    createWorkflow: createWorkflow.mutateAsync,
+    updateWorkflow: updateWorkflow.mutateAsync,
+    deleteWorkflow: deleteWorkflow.mutateAsync,
+  };
+}
+
+export function useWorkflowRuns(workflowId?: string) {
+  const client = useClient();
+
+  const query = useQuery({
+    queryKey: ["workflowRuns", workflowId],
+    queryFn: () => client.getWorkflowRuns(workflowId!),
+    enabled: !!workflowId,
+  });
+
+  return {
+    runs: query.data ?? [],
+    isLoading: query.isLoading,
+    error: query.error,
+  };
+}
+
+// ── Budgets ───────────────────────────────────────────────────────────────
+
+export function useBudgets() {
+  const client = useClient();
+  const queryClient = useQueryClient();
+
+  const query = useQuery({
+    queryKey: ["budgets"],
+    queryFn: () => client.getBudgets(),
+  });
+
+  const incidents = useQuery({
+    queryKey: ["budgetIncidents"],
+    queryFn: () => client.getBudgetIncidents(),
+  });
+
+  const createBudget = useMutation({
+    mutationFn: (data: Record<string, unknown>) => client.createBudget(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["budgets"] });
+      queryClient.invalidateQueries({ queryKey: ["budgetIncidents"] });
+    },
+  });
+
+  const deleteBudget = useMutation({
+    mutationFn: (budgetId: string) => client.deleteBudget(budgetId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["budgets"] });
+      queryClient.invalidateQueries({ queryKey: ["budgetIncidents"] });
+    },
+  });
+
+  return {
+    policies: query.data ?? [],
+    incidents: incidents.data ?? [],
+    isLoading: query.isLoading,
+    error: query.error,
+    createBudget: createBudget.mutateAsync,
+    deleteBudget: deleteBudget.mutateAsync,
+  };
+}
+
+// ── Costs ─────────────────────────────────────────────────────────────────
+
+export function useCosts() {
+  const client = useClient();
+
+  const query = useQuery({
+    queryKey: ["costs"],
+    queryFn: () => client.getCosts(),
+  });
+
+  return {
+    costs: query.data ?? [],
+    isLoading: query.isLoading,
+    error: query.error,
+  };
+}
 
 // ── Connectors ───────────────────────────────────────────────────────────────
 

@@ -22,15 +22,15 @@ import { formatRelativeTime, originLabel, statusLabel } from "./presenter.js";
 const PRIORITY_COLORS: Record<string, string> = {
   high: "bg-red-50 text-red-700",
   medium: "bg-amber-50 text-amber-700",
-  low: "bg-slate-100 text-slate-600",
+  low: "bg-bg-warm text-muted-strong",
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  todo: "bg-slate-100 text-slate-700",
-  in_progress: "bg-blue-100 text-blue-800",
+  todo: "bg-bg-warm text-text-secondary",
+  in_progress: "bg-accent-tint text-accent",
   blocked: "bg-rose-100 text-rose-800",
   done: "bg-emerald-100 text-emerald-800",
-  cancelled: "bg-slate-100 text-slate-500",
+  cancelled: "bg-bg-warm text-muted",
 };
 
 export interface TaskDetailProps {
@@ -64,7 +64,7 @@ export function TaskDetail({ taskId, meId, onChanged }: TaskDetailProps) {
   if (!taskId) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <p className="text-sm text-slate-500">Select a task to read.</p>
+        <p className="text-sm text-muted">Select a task to read.</p>
       </div>
     );
   }
@@ -79,8 +79,8 @@ export function TaskDetail({ taskId, meId, onChanged }: TaskDetailProps) {
 
   const tw: TaskWithComments = data;
   const t = tw.task;
-  const statusClass = STATUS_COLORS[t.status] ?? "bg-slate-100";
-  const priorityClass = PRIORITY_COLORS[t.priority] ?? "bg-slate-100";
+  const statusClass = STATUS_COLORS[t.status] ?? "bg-bg-warm";
+  const priorityClass = PRIORITY_COLORS[t.priority] ?? "bg-bg-warm";
   const assignee =
     t.assigneeAgentId
       ? agentsById.get(t.assigneeAgentId)?.name ?? "Agent"
@@ -90,13 +90,13 @@ export function TaskDetail({ taskId, meId, onChanged }: TaskDetailProps) {
 
   return (
     <div className="flex-1 overflow-auto">
-      <header className="sticky top-0 bg-white border-b border-slate-100 px-6 pt-5 pb-4 z-10">
+      <header className="sticky top-0 bg-white border-b border-border-subtle px-6 pt-5 pb-4 z-10">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <h2 className="text-lg font-semibold text-slate-900 leading-tight">
+            <h2 className="text-lg font-semibold text-text leading-tight">
               {t.title}
             </h2>
-            <div className="mt-1.5 flex items-center gap-2 text-xs text-slate-500 flex-wrap">
+            <div className="mt-1.5 flex items-center gap-2 text-xs text-muted flex-wrap">
               <span
                 className={`text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded ${statusClass}`}
               >
@@ -108,12 +108,12 @@ export function TaskDetail({ taskId, meId, onChanged }: TaskDetailProps) {
                 {t.priority}
               </span>
               {t.identifier && (
-                <span className="text-[10px] font-mono text-slate-400">
+                <span className="text-[10px] font-mono text-muted">
                   {t.identifier}
                 </span>
               )}
               <span>·</span>
-              <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+              <span className="text-[10px] text-muted bg-bg-warm px-1.5 py-0.5 rounded">
                 {originLabel(t.originKind)}
               </span>
               <span>·</span>
@@ -142,11 +142,11 @@ export function TaskDetail({ taskId, meId, onChanged }: TaskDetailProps) {
 
         {t.description && (
           <section>
-            <h3 className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">
+            <h3 className="text-[10px] uppercase tracking-wider text-muted font-medium">
               Description
             </h3>
             <div className="mt-1.5">
-              <Markdown source={t.description} />
+              <Markdown source={t.description} className="text-text" />
             </div>
           </section>
         )}
@@ -154,7 +154,7 @@ export function TaskDetail({ taskId, meId, onChanged }: TaskDetailProps) {
         <TaskSubtasks parentId={t.id} onSelect={onChanged} />
 
         <section>
-          <h3 className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">
+          <h3 className="text-[10px] uppercase tracking-wider text-muted font-medium">
             Conversation
           </h3>
           <div className="mt-2">

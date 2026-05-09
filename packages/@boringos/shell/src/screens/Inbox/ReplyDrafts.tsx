@@ -45,7 +45,7 @@ export function ReplyDrafts({ drafts, onUseDraft, onDiscardDraft }: ReplyDraftsP
                 </span>
               )}
             </div>
-            <pre className="mt-2 text-sm text-slate-800 whitespace-pre-wrap font-sans leading-relaxed">
+            <pre className="mt-2 text-sm text-text whitespace-pre-wrap font-sans leading-relaxed">
               {draft.body}
             </pre>
             <div className="mt-3 flex items-center gap-2">
@@ -59,7 +59,7 @@ export function ReplyDrafts({ drafts, onUseDraft, onDiscardDraft }: ReplyDraftsP
               <button
                 type="button"
                 onClick={() => void onDiscardDraft?.(draft)}
-                className="text-xs font-medium px-3 py-1.5 rounded-md text-slate-600 hover:bg-slate-100"
+                className="text-xs font-medium px-3 py-1.5 rounded-md text-muted-strong hover:bg-bg-warm"
               >
                 Discard
               </button>

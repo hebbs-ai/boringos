@@ -138,6 +138,22 @@ export function BrandProvider({ children }: { children: ReactNode }) {
 
   const brand = useMemo(() => resolveBrand(partial), [partial]);
 
+  // Bridge: write resolved brand colors to CSS custom properties at
+  // :root. Every shell screen that uses semantic tokens (bg-accent,
+  // text-accent, etc.) repaints automatically. See task_18 §2b.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty("--color-accent", brand.primaryColor);
+    // Derive a slightly lighter accent for hover/highlight states.
+    root.style.setProperty("--color-accent-light", brand.primaryColor);
+    root.style.setProperty("--color-navy", brand.secondaryColor);
+    if (brand.faviconUrl) {
+      const link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+      if (link) link.href = brand.faviconUrl;
+    }
+    document.title = brand.productName;
+  }, [brand.primaryColor, brand.secondaryColor, brand.faviconUrl, brand.productName]);
+
   const setBrand = useCallback(
     async (updates: PartialBrand) => {
       if (!token || !user?.tenantId) return;

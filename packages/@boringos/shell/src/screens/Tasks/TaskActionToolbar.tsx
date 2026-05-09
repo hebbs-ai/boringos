@@ -99,7 +99,7 @@ export function TaskActionToolbar({ task, agents, onChanged }: TaskActionToolbar
         onClick={() => void setStatus(isDone ? "todo" : "done")}
         disabled={busy}
         className={`text-xs font-medium px-3 py-1.5 rounded-md text-white disabled:opacity-50 ${
-          isDone ? "bg-slate-500 hover:bg-slate-600" : "bg-emerald-600 hover:bg-emerald-700"
+          isDone ? "bg-muted hover:bg-muted-strong" : "bg-emerald-600 hover:bg-emerald-700"
         }`}
         title={isDone ? "Reopen" : "Mark done (e)"}
       >
@@ -111,27 +111,27 @@ export function TaskActionToolbar({ task, agents, onChanged }: TaskActionToolbar
           type="button"
           onClick={() => setReassignOpen((v) => !v)}
           disabled={busy || agents.length === 0}
-          className="text-xs font-medium px-3 py-1.5 rounded-md text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+          className="text-xs font-medium px-3 py-1.5 rounded-md text-text-secondary hover:bg-bg-warm disabled:opacity-50"
           title="Reassign to a different agent"
         >
           ↻ Reassign ▾
         </button>
         {reassignOpen && (
-          <div className="absolute z-20 top-full left-0 mt-1 w-56 rounded-md bg-white shadow-lg ring-1 ring-slate-200 overflow-hidden max-h-72 overflow-y-auto">
+          <div className="absolute z-20 top-full left-0 mt-1 w-56 rounded-md bg-white shadow-lg ring-1 ring-border overflow-hidden max-h-72 overflow-y-auto">
             {agents.length === 0 ? (
-              <div className="text-[11px] text-slate-500 px-3 py-2">No agents available.</div>
+              <div className="text-[11px] text-muted px-3 py-2">No agents available.</div>
             ) : (
               agents.map((a) => (
                 <button
                   key={a.id}
                   type="button"
                   onClick={() => void reassign(a.id)}
-                  className={`w-full text-left text-xs px-3 py-2 hover:bg-slate-50 ${
-                    a.id === task.assigneeAgentId ? "bg-blue-50 text-blue-900" : ""
+                  className={`w-full text-left text-xs px-3 py-2 hover:bg-bg ${
+                    a.id === task.assigneeAgentId ? "bg-accent-tint text-accent" : ""
                   }`}
                 >
                   <div className="font-medium">{a.name}</div>
-                  {a.role && <div className="text-[10px] text-slate-500">{a.role}</div>}
+                  {a.role && <div className="text-[10px] text-muted">{a.role}</div>}
                 </button>
               ))
             )}
@@ -143,7 +143,7 @@ export function TaskActionToolbar({ task, agents, onChanged }: TaskActionToolbar
         type="button"
         onClick={() => void cyclePriority()}
         disabled={busy}
-        className="text-xs font-medium px-3 py-1.5 rounded-md text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+        className="text-xs font-medium px-3 py-1.5 rounded-md text-text-secondary hover:bg-bg-warm disabled:opacity-50"
         title="Cycle priority (low → medium → high → low)"
       >
         ⋮ Priority: {task.priority}
@@ -154,7 +154,7 @@ export function TaskActionToolbar({ task, agents, onChanged }: TaskActionToolbar
           type="button"
           onClick={() => void wake()}
           disabled={busy}
-          className="text-xs font-medium px-3 py-1.5 rounded-md text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+          className="text-xs font-medium px-3 py-1.5 rounded-md text-text-secondary hover:bg-bg-warm disabled:opacity-50"
           title="Manually wake the assigned agent (use when it looks stuck)"
         >
           ↯ Wake

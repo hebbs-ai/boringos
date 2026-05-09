@@ -72,10 +72,10 @@ export function InboxDetail({
     return (
       <div className="flex-1 flex items-center justify-center">
         <div className="text-center">
-          <p className="text-sm text-slate-500">Select an item to read.</p>
-          <p className="text-xs text-slate-400 mt-1">
-            Or press <kbd className="px-1 py-0.5 bg-slate-100 rounded text-[10px] font-mono">j</kbd> /
-            <kbd className="px-1 py-0.5 bg-slate-100 rounded text-[10px] font-mono ml-1">k</kbd> to navigate (coming in B1).
+          <p className="text-sm text-muted">Select an item to read.</p>
+          <p className="text-xs text-muted mt-1">
+            Or press <kbd className="px-1 py-0.5 bg-bg-warm rounded text-[10px] font-mono">j</kbd> /
+            <kbd className="px-1 py-0.5 bg-bg-warm rounded text-[10px] font-mono ml-1">k</kbd> to navigate (coming in B1).
           </p>
         </div>
       </div>
@@ -90,20 +90,20 @@ export function InboxDetail({
 
   return (
     <div className="flex-1 overflow-auto">
-      <header className="sticky top-0 bg-white border-b border-slate-100 px-6 pt-5 pb-4 z-10">
-        <h2 className="text-lg font-semibold text-slate-900 leading-tight">
+      <header className="sticky top-0 bg-white border-b border-border-subtle px-6 pt-5 pb-4 z-10">
+        <h2 className="text-lg font-semibold text-text leading-tight">
           {latest.subject || "(no subject)"}
         </h2>
-        <div className="mt-1.5 flex items-center gap-2 text-xs text-slate-500">
-          <span className="font-medium text-slate-700">{latest.from ?? "(unknown sender)"}</span>
+        <div className="mt-1.5 flex items-center gap-2 text-xs text-muted">
+          <span className="font-medium text-text-secondary">{latest.from ?? "(unknown sender)"}</span>
           <span>·</span>
           <span>{formatAbsoluteTime(latest.createdAt)}</span>
           <span>·</span>
-          <span className="font-mono text-[10px] text-slate-400">{latest.source}</span>
+          <span className="font-mono text-[10px] text-muted">{latest.source}</span>
           {thread.items.length > 1 && (
             <>
               <span>·</span>
-              <span className="text-[10px] text-slate-500">
+              <span className="text-[10px] text-muted">
                 {thread.items.length} messages
               </span>
             </>
@@ -139,7 +139,7 @@ export function InboxDetail({
                 via {sentReply.via}
               </span>
             </div>
-            <pre className="mt-2 text-sm text-slate-800 whitespace-pre-wrap font-sans leading-relaxed">
+            <pre className="mt-2 text-sm text-text whitespace-pre-wrap font-sans leading-relaxed">
               {sentReply.body}
             </pre>
           </section>
@@ -149,10 +149,10 @@ export function InboxDetail({
         {triage && (
           <section
             data-testid="triage-card"
-            className="rounded-lg border border-slate-200 bg-slate-50/50 px-4 py-3"
+            className="rounded-lg border border-border bg-bg/50 px-4 py-3"
           >
             <div className="flex items-center gap-2">
-              <span className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">
+              <span className="text-[10px] uppercase tracking-wider text-muted font-medium">
                 Triage
               </span>
               <TriageClassificationMenu
@@ -160,19 +160,19 @@ export function InboxDetail({
                 onSelect={(next) => void onReclassify?.(latest, next)}
               />
               {tier && (
-                <span className="flex items-center gap-1 text-xs text-slate-600 tabular-nums">
+                <span className="flex items-center gap-1 text-xs text-muted-strong tabular-nums">
                   <span className={`w-1.5 h-1.5 rounded-full ${scoreDotClass(tier)}`} />
                   Score {triage.score}
                 </span>
               )}
               {triage.classifiedAt && (
-                <span className="text-[10px] text-slate-400 ml-auto">
+                <span className="text-[10px] text-muted ml-auto">
                   {formatAbsoluteTime(triage.classifiedAt)}
                 </span>
               )}
             </div>
             {triage.rationale && (
-              <p className="mt-1.5 text-xs text-slate-700 leading-relaxed">
+              <p className="mt-1.5 text-xs text-text-secondary leading-relaxed">
                 {triage.rationale}
               </p>
             )}
@@ -217,33 +217,33 @@ function ThreadMessage({ item, defaultExpanded, showDivider }: ThreadMessageProp
       <button
         type="button"
         onClick={() => setExpanded(true)}
-        className={`w-full text-left rounded-md px-3 py-2 hover:bg-slate-50 ${
-          showDivider ? "border-t border-slate-100" : ""
+        className={`w-full text-left rounded-md px-3 py-2 hover:bg-bg ${
+          showDivider ? "border-t border-border-subtle" : ""
         }`}
       >
         <div className="flex items-baseline gap-2 text-xs">
-          <span className="font-medium text-slate-700">
+          <span className="font-medium text-text-secondary">
             {parseSenderName(item.from)}
           </span>
-          <span className="text-slate-400">{formatAbsoluteTime(item.createdAt)}</span>
-          <span className="text-slate-400 ml-auto">▾ Expand</span>
+          <span className="text-muted">{formatAbsoluteTime(item.createdAt)}</span>
+          <span className="text-muted ml-auto">▾ Expand</span>
         </div>
       </button>
     );
   }
 
   return (
-    <div className={showDivider ? "pt-3 border-t border-slate-100" : ""}>
+    <div className={showDivider ? "pt-3 border-t border-border-subtle" : ""}>
       <div className="flex items-baseline gap-2 text-xs mb-2">
-        <span className="font-medium text-slate-700">
+        <span className="font-medium text-text-secondary">
           {parseSenderName(item.from)}
         </span>
-        <span className="text-slate-400">{formatAbsoluteTime(item.createdAt)}</span>
+        <span className="text-muted">{formatAbsoluteTime(item.createdAt)}</span>
         {showDivider && (
           <button
             type="button"
             onClick={() => setExpanded(false)}
-            className="ml-auto text-slate-400 hover:text-slate-700"
+            className="ml-auto text-muted hover:text-text-secondary"
           >
             Collapse
           </button>

@@ -3,9 +3,9 @@ import type { RuntimeModule, RuntimeRegistry } from "@boringos/runtime";
 import type { StorageBackend } from "@boringos/drive";
 import type { DatabaseConfig } from "@boringos/db";
 import type { AgentEngine, ContextProvider } from "@boringos/agent";
-import type { WorkflowEngine, BlockHandler } from "@boringos/workflow";
+// @boringos/workflow engine deleted — use the v2 dispatcher.
 import type { SkillProvider } from "@boringos/shared";
-import type { EventBus } from "@boringos/connector";
+import type { EventBus } from "./event-bus.js";
 
 // ── BoringOS — the application host ────────────────────────────────────────
 
@@ -31,6 +31,7 @@ export interface BoringOSConfig {
    * still runs after if registered.
    */
   defaultAppsDir?: string;
+  // v1 has been removed. v2 is the only mode.
 }
 
 export interface QueueConfig {
@@ -71,7 +72,7 @@ export interface AppContext {
   drive: StorageBackend | null;
   runtimes: RuntimeRegistry;
   agentEngine: AgentEngine | null;
-  workflowEngine: WorkflowEngine | null;
+  // workflowEngine removed — use v2 `workflow.run` tool.
   eventBus: EventBus;
 }
 

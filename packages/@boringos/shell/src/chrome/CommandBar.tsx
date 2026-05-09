@@ -84,14 +84,14 @@ export function CommandBar() {
   );
 
   return (
-    <div className="shrink-0 border-t border-slate-200 bg-white">
+    <div className="shrink-0 border-t border-border bg-white">
       <div className="w-full px-6 py-3">
         <div className="max-w-[720px] mx-auto relative">
           <form
             onSubmit={handleSubmit}
-            className="bg-white border border-slate-300 flex items-center px-4 py-2.5 gap-2 rounded-xl focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/15 transition-all"
+            className="bg-white border border-border flex items-center px-4 py-2.5 gap-2 rounded-xl focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/15 transition-all"
           >
-            <span className="text-[13px] font-semibold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded shrink-0">
+            <span className="text-[13px] font-semibold text-muted bg-bg-warm px-1.5 py-0.5 rounded shrink-0">
               &#8984;K
             </span>
             <input
@@ -109,12 +109,12 @@ export function CommandBar() {
                   ? "Install an app to enable commands…"
                   : "Type a command…"
               }
-              className="flex-1 border-none outline-none text-sm text-slate-900 bg-transparent placeholder:text-slate-400"
+              className="flex-1 border-none outline-none text-sm text-text bg-transparent placeholder:text-muted"
             />
           </form>
 
           {open && matches.length > 0 && (
-            <ul className="absolute left-0 right-0 bottom-full mb-2 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
+            <ul className="absolute left-0 right-0 bottom-full mb-2 bg-white border border-border rounded-xl shadow-lg overflow-hidden">
               {matches.map((m) => (
                 <li key={`${m.appId}/${m.slotId}`}>
                   <button
@@ -124,17 +124,17 @@ export function CommandBar() {
                       e.preventDefault();
                     }}
                     onClick={() => void invoke(m)}
-                    className="w-full text-left px-4 py-2 hover:bg-slate-50 flex items-center gap-2"
+                    className="w-full text-left px-4 py-2 hover:bg-bg flex items-center gap-2"
                   >
                     {m.slot.icon && (
-                      <span className="w-[18px] text-center text-[15px] shrink-0 text-slate-500">
+                      <span className="w-[18px] text-center text-[15px] shrink-0 text-muted">
                         {m.slot.icon}
                       </span>
                     )}
-                    <span className="flex-1 text-sm text-slate-900">
+                    <span className="flex-1 text-sm text-text">
                       {m.slot.label}
                     </span>
-                    <span className="text-[10px] text-slate-400 font-mono">
+                    <span className="text-[10px] text-muted font-mono">
                       {m.appId}
                     </span>
                   </button>

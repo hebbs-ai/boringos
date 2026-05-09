@@ -35,18 +35,18 @@ export function TaskSubtasks({ parentId, onSelect: _onSelect }: TaskSubtasksProp
 
   return (
     <section>
-      <h3 className="text-[10px] uppercase tracking-wider text-slate-500 font-medium">
+      <h3 className="text-[10px] uppercase tracking-wider text-muted font-medium">
         Subtasks ({done}/{subtasks.length})
       </h3>
-      <ul className="mt-1.5 divide-y divide-slate-100 rounded-md border border-slate-200">
+      <ul className="mt-1.5 divide-y divide-border-subtle rounded-md border border-border">
         {subtasks.map((s) => (
           <li key={s.id} className="px-3 py-2 flex items-center justify-between gap-2">
             <div className="min-w-0 flex-1">
-              <div className="text-sm text-slate-900 truncate">
+              <div className="text-sm text-text truncate">
                 {s.title}
               </div>
               {s.description && (
-                <div className="text-[11px] text-slate-500 truncate mt-0.5">
+                <div className="text-[11px] text-muted truncate mt-0.5">
                   {s.description.replace(/[`*_#>]/g, "").trim()}
                 </div>
               )}
@@ -57,7 +57,7 @@ export function TaskSubtasks({ parentId, onSelect: _onSelect }: TaskSubtasksProp
                   ? "bg-emerald-100 text-emerald-800"
                   : s.status === "blocked"
                     ? "bg-rose-100 text-rose-800"
-                    : "bg-slate-100 text-slate-700"
+                    : "bg-bg-warm text-text-secondary"
               }`}
             >
               {statusLabel(s.status)}

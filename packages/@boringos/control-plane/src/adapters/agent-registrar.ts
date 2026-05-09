@@ -93,8 +93,13 @@ export async function registerAppAgents(
     const instructions =
       typeof def.instructions === "string" ? def.instructions : null;
     const runtime = typeof def.runtime === "string" ? def.runtime : null;
-    const skills = Array.isArray(def.skills)
-      ? def.skills.filter((s): s is string => typeof s === "string")
+    // Accept both `routingTags` (new) and `skills` (legacy) on the
+    // app's AgentDefinition for one release; the column is
+    // `routing_tags` (renamed in task_15 §1).
+    const tagsSrc = (def as { routingTags?: unknown; skills?: unknown }).routingTags
+      ?? (def as { skills?: unknown }).skills;
+    const routingTags = Array.isArray(tagsSrc)
+      ? (tagsSrc as unknown[]).filter((s): s is string => typeof s === "string")
       : [];
 
     const metadata = {
@@ -129,7 +134,7 @@ export async function registerAppAgents(
           name         = ${def.name},
           role         = ${role},
           instructions = ${instructions},
-          skills       = ${JSON.stringify(skills)}::jsonb,
+          routing_tags = ${JSON.stringify(routingTags)}::jsonb,
           metadata     = ${JSON.stringify(metadata)}::jsonb,
           runtime_id   = ${runtimeId},
           updated_at   = NOW()
@@ -151,14 +156,14 @@ export async function registerAppAgents(
 
       const rows = (await tx.execute(sql`
         INSERT INTO agents (
-          tenant_id, name, role, instructions, skills, metadata, runtime_id, reports_to
+          tenant_id, name, role, instructions, routing_tags, metadata, runtime_id, reports_to
         )
         VALUES (
           ${tenantId},
           ${def.name},
           ${role},
           ${instructions},
-          ${JSON.stringify(skills)}::jsonb,
+          ${JSON.stringify(routingTags)}::jsonb,
           ${JSON.stringify(metadata)}::jsonb,
           ${runtimeId},
           ${reportsTo}

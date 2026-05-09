@@ -19,6 +19,8 @@ import {
   readThreadId,
   threadMatchesQuery,
   buildQuotedReply,
+  buildHtmlQuotedReply,
+  htmlToPlainText,
   readSentReply,
 } from "@boringos/shell/screens/Inbox/presenter.js";
 
@@ -417,7 +419,7 @@ describe("classificationChipClass", () => {
     const reply = classificationChipClass("reply");
     expect(lead).not.toBe(reply);
     expect(lead).toContain("emerald");
-    expect(reply).toContain("blue");
+    expect(reply).toContain("accent");
     expect(classificationChipClass("spam")).toContain("rose");
     expect(classificationChipClass("newsletter")).toContain("amber");
   });
@@ -450,5 +452,83 @@ describe("snippetFrom", () => {
 
   it("doesn't truncate when shorter than maxChars", () => {
     expect(snippetFrom("short text", 80)).toBe("short text");
+  });
+});
+
+describe("buildHtmlQuotedReply", () => {
+  const sender = "Jane Doe <jane@example.com>";
+  const date = new Date("2026-05-09T12:00:00Z");
+
+  it("wraps the original HTML in a gmail_quote blockquote", () => {
+    const out = buildHtmlQuotedReply({
+      draftHtml: "<p>Thanks!</p>",
+      originalSender: sender,
+      originalDate: date,
+      originalBodyHtml: "<p>Hi there</p>",
+      originalBodyPlain: null,
+    });
+    expect(out).toContain("<p>Thanks!</p>");
+    expect(out).toContain('class="gmail_quote"');
+    expect(out).toContain("<p>Hi there</p>");
+    expect(out).toContain("Jane Doe");
+  });
+
+  it("escapes HTML in the attribution header so sender names with brackets don't break the doc", () => {
+    const out = buildHtmlQuotedReply({
+      draftHtml: "<p>ok</p>",
+      originalSender: "<script>alert(1)</script>",
+      originalDate: date,
+      originalBodyHtml: "<p>x</p>",
+      originalBodyPlain: null,
+    });
+    expect(out).not.toContain("<script>alert(1)</script>");
+    expect(out).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+  });
+
+  it("falls back to <pre>-wrapped plain text when bodyHtml is missing", () => {
+    const out = buildHtmlQuotedReply({
+      draftHtml: "<p>ok</p>",
+      originalSender: sender,
+      originalDate: date,
+      originalBodyHtml: null,
+      originalBodyPlain: "Hi there\nLine 2",
+    });
+    expect(out).toContain("<pre>");
+    expect(out).toContain("Hi there");
+  });
+
+  it("returns just the draft when there is no original body to quote", () => {
+    const out = buildHtmlQuotedReply({
+      draftHtml: "<p>ok</p>",
+      originalSender: sender,
+      originalDate: date,
+      originalBodyHtml: null,
+      originalBodyPlain: null,
+    });
+    expect(out).toBe("<p>ok</p>");
+  });
+});
+
+describe("htmlToPlainText", () => {
+  it("strips tags and decodes entities", () => {
+    expect(htmlToPlainText("<p>Hello&nbsp;<strong>world</strong>&amp;more</p>"))
+      .toBe("Hello world&more");
+  });
+
+  it("converts <br> and block boundaries to newlines", () => {
+    const out = htmlToPlainText("<p>line 1</p><p>line 2</p><div>line 3<br>line 4</div>");
+    expect(out.split("\n")).toEqual(["line 1", "line 2", "line 3", "line 4"]);
+  });
+
+  it("returns empty string for empty / null input", () => {
+    expect(htmlToPlainText("")).toBe("");
+    expect(htmlToPlainText(null)).toBe("");
+    expect(htmlToPlainText(undefined)).toBe("");
+  });
+
+  it("collapses 3+ blank lines down to 2", () => {
+    const out = htmlToPlainText("<p>a</p><p></p><p></p><p></p><p>b</p>");
+    // <p></p> becomes a blank line; we collapse runs of 3+ blanks to 2.
+    expect(out).toBe("a\n\nb");
   });
 });

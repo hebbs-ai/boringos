@@ -20,8 +20,11 @@
   },
   "packageManager": "pnpm@9.15.4",
   "devDependencies": {
+    "@boringos/agent": "workspace:*",
     "@boringos/connector-google": "workspace:*",
     "@boringos/core": "workspace:*",
+    "@boringos/db": "workspace:*",
+    "@boringos/module-sdk": "workspace:*",
     "@changesets/cli": "^2.30.0",
     "drizzle-orm": "^0.41.0",
     "hono": "^4.7.0",

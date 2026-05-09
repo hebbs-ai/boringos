@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 //
 // Shell App — public auth routes (Login, Signup) + auth-gated chrome
-// hosting the seven shell-mandatory screens (A5).
-// Drive, Approvals, Activity, Team are still placeholders. Connectors
-// landed in N1; Apps landed in C/K series.
+// hosting the shell-mandatory screens. Admin-only routes are wrapped
+// in <RequireAdmin> at this layer (task_16 phase 1).
 
 import {
   BrowserRouter,
@@ -14,36 +13,26 @@ import {
 
 import { Layout } from "./chrome/Layout.js";
 import { SlotRegistryProvider } from "./slots/context.js";
-import { AuthProvider, Login, RequireAuth, Signup } from "./auth/index.js";
+import { AuthProvider, Login, RequireAdmin, RequireAuth, Signup } from "./auth/index.js";
 import { BoringOSClientProvider } from "./providers/BoringOSClientProvider.js";
 import { BrandProvider } from "./branding/BrandProvider.js";
 import {
+  Activity,
   Agents,
+  Budgets,
   Calendar,
   Connectors,
   Copilot,
+  Drive,
   Home,
   Inbox,
+  Routines,
   Settings,
   Tasks,
+  Team,
   Workflows,
 } from "./screens/index.js";
 import { Apps } from "./screens/Apps/index.js";
-import { SDK_VERSION } from "@boringos/app-sdk";
-
-function PlaceholderScreen({ title }: { title: string }) {
-  return (
-    <div className="flex-1 overflow-auto p-8">
-      <h1 className="text-2xl font-semibold text-slate-900">{title}</h1>
-      <p className="text-sm text-slate-500 mt-2">
-        Placeholder screen — landed in a later A-task.
-      </p>
-      <p className="text-xs text-slate-400 mt-8 font-mono">
-        @boringos/app-sdk {SDK_VERSION}
-      </p>
-    </div>
-  );
-}
 
 export function App() {
   return (
@@ -75,18 +64,75 @@ export function App() {
                 <Route path="calendar" element={<Calendar />} />
                 <Route path="tasks" element={<Tasks />} />
                 <Route path="agents" element={<Agents />} />
-                <Route path="workflows" element={<Workflows />} />
-                <Route path="settings" element={<Settings />} />
+                <Route
+                  path="workflows"
+                  element={
+                    <RequireAdmin title="Workflows">
+                      <Workflows />
+                    </RequireAdmin>
+                  }
+                />
+                <Route
+                  path="settings"
+                  element={
+                    <RequireAdmin title="Settings">
+                      <Settings />
+                    </RequireAdmin>
+                  }
+                />
 
                 {/* Approvals are tasks now — keep a redirect so old
                     bookmarks still land somewhere useful. */}
                 <Route path="approvals" element={<Navigate to="/tasks?tab=my-todos" replace />} />
-                {/* Still placeholders */}
-                <Route path="drive" element={<PlaceholderScreen title="Drive" />} />
-                <Route path="connectors" element={<Connectors />} />
-                <Route path="apps" element={<Apps />} />
-                <Route path="activity" element={<PlaceholderScreen title="Activity" />} />
-                <Route path="team" element={<PlaceholderScreen title="Team" />} />
+                <Route path="drive" element={<Drive />} />
+                <Route
+                  path="connectors"
+                  element={
+                    <RequireAdmin title="Connectors">
+                      <Connectors />
+                    </RequireAdmin>
+                  }
+                />
+                <Route
+                  path="apps"
+                  element={
+                    <RequireAdmin title="Apps">
+                      <Apps />
+                    </RequireAdmin>
+                  }
+                />
+                <Route
+                  path="routines"
+                  element={
+                    <RequireAdmin title="Routines">
+                      <Routines />
+                    </RequireAdmin>
+                  }
+                />
+                <Route
+                  path="budgets"
+                  element={
+                    <RequireAdmin title="Budgets">
+                      <Budgets />
+                    </RequireAdmin>
+                  }
+                />
+                <Route
+                  path="activity"
+                  element={
+                    <RequireAdmin title="Activity">
+                      <Activity />
+                    </RequireAdmin>
+                  }
+                />
+                <Route
+                  path="team"
+                  element={
+                    <RequireAdmin title="Team">
+                      <Team />
+                    </RequireAdmin>
+                  }
+                />
               </Route>
             </Routes>
           </BrowserRouter>

@@ -15,10 +15,10 @@ export function ScreenHeader({
   actions?: ReactNode;
 }) {
   return (
-    <header className="px-8 pt-8 pb-4 border-b border-slate-100 flex items-start justify-between">
+    <header className="px-8 pt-8 pb-4 border-b border-border-subtle flex items-start justify-between">
       <div>
-        <h1 className="text-2xl font-semibold text-slate-900">{title}</h1>
-        {subtitle && <p className="text-sm text-slate-500 mt-1">{subtitle}</p>}
+        <h1 className="text-2xl font-semibold text-text">{title}</h1>
+        {subtitle && <p className="text-sm text-muted mt-1">{subtitle}</p>}
       </div>
       {actions && <div className="flex items-center gap-2">{actions}</div>}
     </header>
@@ -36,9 +36,9 @@ export function EmptyState({
 }) {
   return (
     <div className="flex flex-col items-center justify-center py-16 text-center">
-      <h2 className="text-base font-medium text-slate-900">{title}</h2>
+      <h2 className="text-base font-medium text-text">{title}</h2>
       {description && (
-        <p className="mt-2 text-sm text-slate-500 max-w-sm">{description}</p>
+        <p className="mt-2 text-sm text-muted max-w-sm">{description}</p>
       )}
       {cta && <div className="mt-4">{cta}</div>}
     </div>
@@ -48,7 +48,7 @@ export function EmptyState({
 export function LoadingState() {
   return (
     <div className="flex items-center justify-center py-16">
-      <div className="text-sm text-slate-400">Loading…</div>
+      <div className="text-sm text-muted">Loading…</div>
     </div>
   );
 }

@@ -9,7 +9,7 @@ import {
   createState,
   verifyState,
   isSafeReturnTo,
-} from "@boringos/connector";
+} from "../packages/@boringos/core/src/oauth.js";
 
 const SECRET = "phase-3-test-secret";
 const NOW = new Date("2026-05-06T12:00:00Z");

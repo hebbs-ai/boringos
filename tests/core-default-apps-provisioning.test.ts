@@ -4,10 +4,11 @@
  * written per failure. Already-installed apps are not re-installed.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sql } from "drizzle-orm";
+import { createHash } from "node:crypto";
 import { Hono } from "hono";
 
 import { provisionDefaultApps } from "@boringos/core";
@@ -91,6 +92,16 @@ const replierManifest: AppManifest = {
   capabilities: ["events:subscribe:inbox.item_created"],
 };
 
+function createCatalogEntry(id: string, manifest: AppManifest, bundleText: string = ""): DefaultAppEntry {
+  const manifestText = JSON.stringify(manifest);
+  const manifestHash = createHash("sha256")
+    .update(manifestText)
+    .update(" ")
+    .update(bundleText)
+    .digest("hex");
+  return { id, manifest, bundleText, manifestHash };
+}
+
 function buildContext() {
   const events: { type: string; payload: Record<string, unknown> }[] = [];
   const coreApp = new Hono();
@@ -144,7 +155,7 @@ describe("provisionDefaultApps", () => {
     const ctx = buildContext();
 
     const catalog: DefaultAppEntry[] = [
-      { id: "generic-replier", manifest: replierManifest },
+      createCatalogEntry("generic-replier", replierManifest, "/* replier bundle */"),
     ];
 
     await provisionDefaultApps({

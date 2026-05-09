@@ -29,8 +29,8 @@ export function ClassificationFilter({ active, counts, onToggle, onClear }: Clas
         onClick={onClear}
         className={`text-[11px] px-2 py-0.5 rounded-full ${
           active.size === 0
-            ? "bg-slate-900 text-white"
-            : "text-slate-500 hover:text-slate-900"
+            ? "bg-accent text-white"
+            : "text-muted hover:text-text"
         }`}
       >
         All
@@ -45,7 +45,7 @@ export function ClassificationFilter({ active, counts, onToggle, onClear }: Clas
             type="button"
             onClick={() => onToggle(c)}
             className={`flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full ring-1 ${
-              isOn ? classificationChipClass(c) : "ring-slate-200 text-slate-500 hover:text-slate-900"
+              isOn ? classificationChipClass(c) : "ring-border text-muted hover:text-text"
             }`}
           >
             <span className="capitalize">{c}</span>

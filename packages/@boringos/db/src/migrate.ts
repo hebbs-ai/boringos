@@ -603,6 +603,47 @@ async function ensureSchema(db: Db): Promise<void> {
     CREATE INDEX IF NOT EXISTS tasks_assignee_agent_idx ON tasks(assignee_agent_id);
     CREATE INDEX IF NOT EXISTS agent_runs_tenant_agent_idx ON agent_runs(tenant_id, agent_id);
 
+    -- Handoff state machine. Independent of the status column (lifecycle).
+    -- 'agent' = agent should pick up; 'human' = waiting on human; NULL = terminal.
+    -- Keep the legacy status column untouched so every consumer that
+    -- reads it keeps working; the new behavior keys off next_actor only.
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS next_actor TEXT;
+    UPDATE tasks SET next_actor = CASE
+      WHEN status = 'done' THEN NULL
+      WHEN status = 'cancelled' THEN NULL
+      WHEN assignee_agent_id IS NOT NULL THEN 'agent'
+      ELSE 'human'
+    END WHERE next_actor IS NULL;
+    CREATE INDEX IF NOT EXISTS tasks_next_actor_idx ON tasks(tenant_id, next_actor) WHERE next_actor IS NOT NULL;
+
+    -- Auto-set next_actor on insert if caller didn't specify one.
+    -- This means every existing INSERT path keeps working — no need
+    -- to touch admin-routes, copilot module, framework.tasks.create,
+    -- inbox-fanout, etc. The trigger derives next_actor from the
+    -- assignee at insert time. Status='done'/'cancelled' clear it
+    -- back to NULL on update.
+    CREATE OR REPLACE FUNCTION tasks_set_next_actor() RETURNS TRIGGER AS $$
+    BEGIN
+      IF TG_OP = 'INSERT' AND NEW.next_actor IS NULL THEN
+        NEW.next_actor := CASE
+          WHEN NEW.status IN ('done', 'cancelled') THEN NULL
+          WHEN NEW.assignee_agent_id IS NOT NULL THEN 'agent'
+          ELSE 'human'
+        END;
+      END IF;
+      IF TG_OP = 'UPDATE' AND NEW.status IN ('done', 'cancelled') AND OLD.status NOT IN ('done', 'cancelled') THEN
+        NEW.next_actor := NULL;
+      END IF;
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql;
+
+    DROP TRIGGER IF EXISTS tasks_set_next_actor_trigger ON tasks;
+    CREATE TRIGGER tasks_set_next_actor_trigger
+      BEFORE INSERT OR UPDATE ON tasks
+      FOR EACH ROW
+      EXECUTE FUNCTION tasks_set_next_actor();
+
     -- Phase 2 K4: workflow rows know which app they belong to so re-install can
     -- replace cleanly. ALTER is idempotent via IF NOT EXISTS.
     ALTER TABLE workflows ADD COLUMN IF NOT EXISTS metadata JSONB;

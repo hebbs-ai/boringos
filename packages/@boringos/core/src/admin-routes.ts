@@ -578,12 +578,95 @@ export function createAdminRoutes(
     if (body.priority !== undefined) values.priority = body.priority;
     if (body.assigneeAgentId !== undefined) values.assigneeAgentId = body.assigneeAgentId;
     if (body.assigneeUserId !== undefined) values.assigneeUserId = body.assigneeUserId;
+    if (body.nextActor !== undefined) values.nextActor = body.nextActor;
 
     await db.update(tasks).set(values).where(
       and(eq(tasks.id, c.req.param("id")), eq(tasks.tenantId, c.get("tenantId"))),
     );
     const rows = await db.select().from(tasks).where(eq(tasks.id, c.req.param("id"))).limit(1);
     return c.json(rows[0]);
+  });
+
+  // POST /tasks/:id/send-to-agent — the human's "Send back to agent"
+  // button. Flips next_actor='agent' and wakes the assigned agent so
+  // the conversation resumes. Optional body: { comment } — appended as
+  // a task comment before the wake so the agent reads it on next pass.
+  app.post("/tasks/:id/send-to-agent", async (c) => {
+    const taskId = c.req.param("id");
+    const tenantId = c.get("tenantId");
+    let body: Record<string, unknown> = {};
+    try { body = await c.req.json() as Record<string, unknown>; } catch { /* empty body OK */ }
+
+    const taskRows = await db.select().from(tasks).where(
+      and(eq(tasks.id, taskId), eq(tasks.tenantId, tenantId)),
+    ).limit(1);
+    const task = taskRows[0];
+    if (!task) return c.json({ error: "Task not found" }, 404);
+    if (!task.assigneeAgentId) {
+      return c.json({ error: "Task has no agent assignee — assign one first" }, 400);
+    }
+    if (task.status === "done" || task.status === "cancelled") {
+      return c.json({ error: `Task is ${task.status}; reopen first` }, 400);
+    }
+
+    if (typeof body.comment === "string" && body.comment.trim().length > 0) {
+      const userId = c.get("userId");
+      const { taskComments } = await import("@boringos/db");
+      await db.insert(taskComments).values({
+        id: generateId(),
+        taskId,
+        tenantId,
+        body: body.comment,
+        authorUserId: userId,
+      });
+    }
+
+    await db.update(tasks).set({
+      nextActor: "agent",
+      updatedAt: new Date(),
+    }).where(eq(tasks.id, taskId));
+
+    const outcome = await engine.wake({
+      agentId: task.assigneeAgentId,
+      tenantId,
+      taskId,
+      reason: "comment_posted",
+    });
+    if (outcome.kind === "created") {
+      await engine.enqueue(outcome.wakeupRequestId);
+    }
+    return c.json({ ok: true, wakeOutcome: outcome });
+  });
+
+  // POST /tasks/:id/mark-done — the human's "Mark done" button. Closes
+  // the task. The DB trigger nulls next_actor automatically. Optional
+  // closing comment.
+  app.post("/tasks/:id/mark-done", async (c) => {
+    const taskId = c.req.param("id");
+    const tenantId = c.get("tenantId");
+    let body: Record<string, unknown> = {};
+    try { body = await c.req.json() as Record<string, unknown>; } catch { /* empty body OK */ }
+
+    if (typeof body.comment === "string" && body.comment.trim().length > 0) {
+      const userId = c.get("userId");
+      const { taskComments } = await import("@boringos/db");
+      await db.insert(taskComments).values({
+        id: generateId(),
+        taskId,
+        tenantId,
+        body: body.comment,
+        authorUserId: userId,
+      });
+    }
+
+    await db.update(tasks).set({
+      status: "done",
+      completedAt: new Date(),
+      updatedAt: new Date(),
+    }).where(
+      and(eq(tasks.id, taskId), eq(tasks.tenantId, tenantId)),
+    );
+    return c.json({ ok: true });
   });
 
   app.delete("/tasks/:id", async (c) => {
@@ -745,29 +828,34 @@ export function createAdminRoutes(
     emit("task:comment_added", tenantId, { taskId, commentId: id });
     await logActivity(tenantId, "comment.created", "task_comment", id, { taskId });
 
-    // Auto-wake on user comment.
-    //  - If the task is assigned to an agent → wake the assignee (handles
-    //    copilot sessions, delegated work, etc.).
-    //  - Otherwise, if the task was created by an agent (typical human_todo
-    //    case: agent proposes a follow-up question, user answers in a
-    //    comment) → wake the creator so the answer can flow back into
-    //    whatever state the creator owns (dossier, intelligence, plan).
-    // Either way the agent receives the task + comments in its context.
+    // Auto-wake on user comment — gated on next_actor='agent'.
+    //
+    // When next_actor='human' the comment is a note for the next pass
+    // (the user explicitly clicks "Send back to agent" to re-engage).
+    // When next_actor='agent' the user is mid-conversation with the
+    // agent, so a comment legitimately drops into context — wake the
+    // assignee (or, for human_todo tasks where the agent proposed the
+    // follow-up, wake the creator).
+    //
+    // This is the loop fix: a comment can't accidentally re-engage
+    // an agent on a task that's already handed back to the human.
     if (!body.authorAgentId) {
       const taskRows = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1);
       const task = taskRows[0];
-      const wakeTargetAgentId = task?.assigneeAgentId ?? task?.createdByAgentId ?? null;
-      if (wakeTargetAgentId) {
-        const outcome = await engine.wake({
-          agentId: wakeTargetAgentId,
-          tenantId,
-          reason: "comment_posted",
-          taskId,
-        });
-        if (outcome.kind === "created") {
-          await engine.enqueue(outcome.wakeupRequestId);
+      if (task && task.nextActor === "agent") {
+        const wakeTargetAgentId = task.assigneeAgentId ?? task.createdByAgentId ?? null;
+        if (wakeTargetAgentId) {
+          const outcome = await engine.wake({
+            agentId: wakeTargetAgentId,
+            tenantId,
+            reason: "comment_posted",
+            taskId,
+          });
+          if (outcome.kind === "created") {
+            await engine.enqueue(outcome.wakeupRequestId);
+          }
+          return c.json({ id, agentWoken: true, wakeup: outcome.kind }, 201);
         }
-        return c.json({ id, agentWoken: true, wakeup: outcome.kind }, 201);
       }
     }
 

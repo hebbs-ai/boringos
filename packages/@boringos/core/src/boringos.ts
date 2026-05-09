@@ -794,6 +794,47 @@ export class BoringOS {
         timestamp: new Date().toISOString(),
       });
 
+      // ── Handoff state machine ────────────────────────────────────
+      // Every agent run that touched a task hands the task back to the
+      // human. Success flips next_actor='human' silently; failure flips
+      // and stamps metadata.lastError so the UI can surface "Run failed —
+      // [Retry] [Take over] [Mark done]". Tasks already 'done' are left
+      // alone — a parallel branch (e.g. agent.tasks.patch) closing the
+      // task wins. This is the rule that breaks self-reply loops: the
+      // auto-rewake gate below skips next_actor='human'.
+      if (event.taskId) {
+        try {
+          const { sql } = await import("drizzle-orm");
+          if (event.result.exitCode === 0) {
+            await dbConn.db.execute(sql`
+              UPDATE tasks
+                 SET next_actor = 'human',
+                     updated_at  = now()
+               WHERE id = ${event.taskId}::uuid
+                 AND status NOT IN ('done', 'cancelled')
+            `).catch(() => {});
+          } else {
+            const lastError = {
+              runId: event.runId,
+              exitCode: event.result.exitCode ?? null,
+              error: (event.result as { error?: unknown }).error ?? null,
+              at: new Date().toISOString(),
+            };
+            await dbConn.db.execute(sql`
+              UPDATE tasks
+                 SET next_actor = 'human',
+                     metadata    = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({ lastError })}::jsonb,
+                     updated_at  = now()
+               WHERE id = ${event.taskId}::uuid
+                 AND status NOT IN ('done', 'cancelled')
+            `).catch(() => {});
+          }
+        } catch {
+          // Non-fatal — handoff is best-effort. Fallback path: the
+          // existing auto-rewake's same-task skip still prevents loops.
+        }
+      }
+
       // Auto-post agent's result as a comment on the task (for copilot sessions + any task-based run)
       if (event.taskId && event.result.exitCode === 0) {
         try {
@@ -833,30 +874,25 @@ export class BoringOS {
         }
       }
 
-      // Auto-re-wake: if agent has remaining 'todo' tasks assigned to
-      // it, wake on the next one — but ONLY when the current run
-      // succeeded. Rewaking after a failed run just replays the same
-      // failure (~500 wakes in 30 min observed). The next user-
-      // initiated wake will pick up the todos normally once the
-      // underlying issue clears.
+      // Auto-re-wake: drain the agent's queue of work that's still
+      // assigned to it AND still expects the agent to act
+      // (`next_actor='agent'`). The handoff above flipped the
+      // just-finished task to `next_actor='human'`, so it's
+      // automatically excluded from this scan — no special-case
+      // needed. We still skip on failed runs to avoid replay storms
+      // (~500 wakes in 30 min observed pre-fix).
       //
       // Sessions are task-scoped, so the wake must target a specific
       // task (the oldest pending one).
       if (event.result.exitCode === 0) {
         try {
           const { sql } = await import("drizzle-orm");
-          // Skip the task we just finished. If it's still `todo`, the
-          // agent didn't make progress — re-waking on it just loops
-          // (BOS-003 hit this with 275 wakes in 23 min). The next
-          // external trigger (user comment, routine, assign) picks it
-          // up. Other todos for the agent still drain normally.
-          const justFinishedTaskId = event.taskId ?? "";
           const nextTaskRows = await dbConn.db.execute(sql`
             SELECT id FROM tasks
             WHERE assignee_agent_id = ${event.agentId}
               AND tenant_id = ${event.tenantId}
-              AND status = 'todo'
-              AND id <> ${justFinishedTaskId}::uuid
+              AND status NOT IN ('done', 'cancelled')
+              AND next_actor = 'agent'
             ORDER BY created_at ASC
             LIMIT 1
           `);

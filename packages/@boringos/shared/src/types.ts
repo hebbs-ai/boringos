@@ -72,11 +72,23 @@ export interface Agent extends Identifiable, TenantScoped, Timestamped {
   lastHeartbeatAt: Date | null;
 }
 
+/**
+ * Handoff state machine, independent of `status` (lifecycle).
+ * Drives the auto-rewake gate and the UI's "Waiting on you" badge.
+ *
+ * - `agent`: agent should pick up. Auto-rewake fires.
+ * - `human`: human should pick up. Auto-rewake skipped.
+ * - `null`: terminal (status='done' or cancelled).
+ */
+export type NextActor = "agent" | "human" | null;
+
 export interface Task extends Identifiable, TenantScoped, Timestamped {
   parentId: string | null;
   title: string;
   description: string | null;
   status: TaskStatus;
+  /** Whose turn it is. See `NextActor`. */
+  nextActor: NextActor;
   priority: TaskPriority;
   assigneeAgentId: string | null;
   assigneeUserId: string | null;

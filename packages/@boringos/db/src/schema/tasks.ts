@@ -11,6 +11,22 @@ export const tasks = pgTable(
     title: text("title").notNull(),
     description: text("description"),
     status: text("status").notNull().default("todo"),
+    /**
+     * Whose turn it is. Drives the auto-rewake gate and the UI's
+     * "Waiting on you" badge. Independent of `status` — `status`
+     * is the lifecycle (todo/in_progress/done), `next_actor` is
+     * the handoff state machine ('agent' / 'human' / null).
+     *
+     * - `agent`: agent should pick up. Auto-rewake fires.
+     * - `human`: human should pick up. Auto-rewake skipped.
+     * - `null`: terminal. Set when status='done' or task cancelled.
+     *
+     * Set on creation by tasks.create (mirrors assignee). Flipped
+     * to 'human' automatically when an agent run completes (see
+     * agent/lifecycle.ts). Flipped back to 'agent' by the user's
+     * "Send back to agent" action (admin route).
+     */
+    nextActor: text("next_actor"),
     priority: text("priority").notNull().default("medium"),
     assigneeAgentId: uuid("assignee_agent_id").references(() => agents.id, { onDelete: "set null" }),
     assigneeUserId: uuid("assignee_user_id"),

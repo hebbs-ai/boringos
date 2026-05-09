@@ -117,6 +117,17 @@ export interface BoringOSClient {
   postComment(taskId: string, data: { body: string }): Promise<{ id: string }>;
   assignTask(taskId: string, agentId: string, wake?: boolean): Promise<Record<string, unknown>>;
   /**
+   * Human's "Send back to agent" — flips next_actor='agent' and wakes the
+   * assigned agent. Optional comment is posted before the wake so the
+   * agent reads it on next pass.
+   */
+  sendTaskToAgent(taskId: string, comment?: string): Promise<{ ok: true; wakeOutcome: { kind: string } }>;
+  /**
+   * Human's "Mark done" — closes the task. The DB trigger nulls
+   * next_actor automatically. Optional closing comment.
+   */
+  markTaskDone(taskId: string, comment?: string): Promise<{ ok: true }>;
+  /**
    * Approve or reject an agent-action task. The optional comment is
    * posted on the PARENT task (where the requesting agent's session
    * lives) and auto-wakes that agent.
@@ -289,6 +300,10 @@ export function createBoringOSClient(config: BoringOSClientConfig): BoringOSClie
     deleteTask: (taskId) => del(`${api}/tasks/${taskId}`),
     postComment: (taskId, data) => post<{ id: string }>(`${api}/tasks/${taskId}/comments`, data),
     assignTask: (taskId, agentId, wake?) => post<Record<string, unknown>>(`${api}/tasks/${taskId}/assign`, { agentId, wake }),
+    sendTaskToAgent: (taskId, comment?) =>
+      post<{ ok: true; wakeOutcome: { kind: string } }>(`${api}/tasks/${taskId}/send-to-agent`, { comment }),
+    markTaskDone: (taskId, comment?) =>
+      post<{ ok: true }>(`${api}/tasks/${taskId}/mark-done`, { comment }),
     decideTask: (taskId, kind, comment) =>
       post<{ ok: true; decision: string; parentWokenForAgentId: string | null }>(
         `${api}/tasks/${taskId}/decision`,

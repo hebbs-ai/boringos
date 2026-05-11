@@ -36,7 +36,7 @@ A Module is **one file**. End users see exactly that: a single `.hebbsmod` they 
 ### 1.1 Internal layout
 
 ```
-hebbs-crm-0.3.0.hebbsmod   (a zip archive — internals shown for spec, not user-visible)
+crm-0.3.0.hebbsmod   (a zip archive — internals shown for spec, not user-visible)
 ├── module.json          # static manifest — see §1.2
 ├── index.mjs            # bundled ESM, default export = Module | ModuleFactory
 ├── skills/              # SKILL.md files referenced from manifest
@@ -57,7 +57,7 @@ Mirrors a subset of the `Module` interface — only the fields the host needs *b
 
 ```json
 {
-  "id": "hebbs-crm",
+  "id": "crm",
   "name": "Hebbs CRM",
   "version": "0.3.0",
   "description": "Deals, contacts, pipelines",
@@ -148,7 +148,7 @@ This separation matters: the same uploaded `.hebbsmod` can be installed for one 
 ```
 POST /api/admin/modules/upload
 Content-Type: multipart/form-data
-Body: file=<hebbs-crm-0.3.0.hebbsmod>
+Body: file=<crm-0.3.0.hebbsmod>
 ```
 
 1. **Receive + extract** to a temp directory.
@@ -391,16 +391,16 @@ Sequenced so each phase is a shippable PR and the next phase depends on the prev
 - **U1.1** — Add `kind: "connector" | "module" | "hybrid"` to the `Module` interface in `packages/@boringos/module-sdk/src/types.ts`. Add to `MODULES.md`. Optional with inferred default.
 - **U1.2** — Add `module_packages` Drizzle table in `packages/@boringos/db/src/schema/` with columns from §1.4. Export from the schema index. Generate + commit migration.
 - **U1.3** — Add a `pack-hebbsmod` script (likely `scripts/pack-hebbsmod.ts` or in `module-sdk`) that any module package runs to produce `dist/<id>-<version>.hebbsmod`. esbuild with `@boringos/*` external; zip with `module.json` at the root; compute and print SHA-256 of the output.
-- **U1.4** — Run U1.3 against `packages/@boringos/core/src/modules/hebbs-crm.ts` and check the artifact into a fixtures dir so U2 has something real to load.
+- **U1.4** — Run U1.3 against `boringos-crm/packages/server/src/module.ts` and check the artifact into a fixtures dir so U2 has something real to load.
 
-**Done when:** `pnpm pack-hebbsmod hebbs-crm` produces a valid zip with `module.json` + `index.mjs`, and `unzip -l hebbs-crm-*.hebbsmod` shows the expected layout. Nothing in the running framework changes.
+**Done when:** `pnpm pack-hebbsmod crm` produces a valid zip with `module.json` + `index.mjs`, and `unzip -l crm-*.hebbsmod` shows the expected layout. Nothing in the running framework changes.
 
 ### U2 — Proof of concept: runtime register (1 day)
 
 Before the full HTTP path, prove the dynamic-import + register approach works at all:
 
 - **U2.1** — Refactor the loop at `boringos.ts:272` into a `registerModule(mod, deps)` method callable post-`listen()`. Boot calls it in a loop; same behavior as today.
-- **U2.2** — Write a 50-line throwaway script: remove CRM from the built-in list, after `app.listen()` extract `crm.hebbsmod`, `await import("file://...")`, call `app.registerModule(mod, deps)`, then `curl POST /api/tools/hebbs-crm.create_deal`.
+- **U2.2** — Write a 50-line throwaway script: remove CRM from the built-in list, after `app.listen()` extract `crm.hebbsmod`, `await import("file://...")`, call `app.registerModule(mod, deps)`, then `curl POST /api/tools/crm.deals.create`.
 
 **Done when:** the curl succeeds, end-to-end, in a single terminal session. **This is the go/no-go gate.** If runtime registration doesn't work (Hono mid-flight route mounting, factory deps captured at boot, registry mutability) you find out before spending days on U3.
 
@@ -411,7 +411,7 @@ Before the full HTTP path, prove the dynamic-import + register approach works at
 - **U3.3** — `DELETE /api/admin/modules/:id?version=X[&force=true]` — refuse if any `module_installs` row exists for `(id, version)` (or cascade through `installManager.uninstall` for every tenant if `force=true`), call `unregisterModule`, delete `module_packages` row, `rm -rf` the store directory.
 - **U3.4** — `HEBBS_DEV_MODULES` env var + signature verification path. Production rejects unsigned bundles; dev accepts with a warning.
 
-**Done when:** a developer can `curl -F file=@crm.hebbsmod /api/admin/modules/upload`, see CRM tools at `/api/admin/modules`, install for a tenant via the existing endpoint, use CRM, then `DELETE /api/admin/modules/hebbs-crm?version=0.3.0` and have it gone (server-side).
+**Done when:** a developer can `curl -F file=@crm.hebbsmod /api/admin/modules/upload`, see CRM tools at `/api/admin/modules`, install for a tenant via the existing endpoint, use CRM, then `DELETE /api/admin/modules/crm?version=0.3.0` and have it gone (server-side).
 
 ### U4 — UI (3–5 days)
 

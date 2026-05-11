@@ -34,7 +34,7 @@ Three roles, same shape:
   `connector-slack`)
 - **Capability** — pure logic depending on other Modules
   (`triage`, `prevent-churn`)
-- **Hybrid** — owns its own data + tools (`hebbs-crm`, `inbox`)
+- **Hybrid** — owns its own data + tools (`crm`, `inbox`)
 
 All registered the same way: `app.module(myModule)`. Adding
 Notion is one Module package, zero framework edits.

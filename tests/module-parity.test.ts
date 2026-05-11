@@ -18,7 +18,6 @@
  *  - workflow.{list, get, run}                 ← v1 workflow engine + BlockHandlers
  *  - inbox.{list, archive, create_task}        ← v1 inbox routes
  *  - copilot.start_session                     ← v1 /api/copilot/sessions
- *  - hebbs-crm.{create_deal, list, ...}        ← v1 separate CRM repo
  *  - triage.{next_pending, classify}           ← v1 triage workflow
  *
  * Connectors (slack, google) are also registered but their
@@ -40,7 +39,6 @@ describe("v2 parity — every v1 capability has a working v2 equivalent", () => 
       createCopilotModule,
       createSlackModule,
       createGoogleModule,
-      createHebbsCrmModule,
       createTriageModule,
     } = await import("@boringos/core");
     const { signCallbackToken } = await import("@boringos/agent");
@@ -67,7 +65,6 @@ describe("v2 parity — every v1 capability has a working v2 equivalent", () => 
     app.module(createCopilotModule);
     app.module(createSlackModule);
     app.module(createGoogleModule);
-    app.module(createHebbsCrmModule);
     app.module(createTriageModule);
 
     const server = await app.listen(0);
@@ -77,7 +74,6 @@ describe("v2 parity — every v1 capability has a working v2 equivalent", () => 
         agents,
         agentRuns,
         inboxItems,
-        hebbsCrmPipelines,
       } = await import("@boringos/db");
       const { generateId } = await import("@boringos/shared");
       const db = (server as unknown as { context: { db: import("@boringos/db").Db } }).context.db;
@@ -247,29 +243,6 @@ describe("v2 parity — every v1 capability has a working v2 equivalent", () => 
       }
 
       // ──────────────────────────────────────────────────────
-      // Hebbs CRM (hybrid module — schema + tools)
-      // ──────────────────────────────────────────────────────
-      const pipelineId = generateId();
-      await db.insert(hebbsCrmPipelines).values({
-        id: pipelineId,
-        tenantId,
-        name: "Parity pipeline",
-        stages: [{ id: "new", name: "New", order: 0 }],
-        isDefault: "true",
-      });
-
-      const dealCreate = await callTool("hebbs-crm.create_deal", {
-        title: "Parity deal",
-        amountCents: 100_00,
-        pipelineId,
-        stageId: "new",
-      });
-      expect(dealCreate.body.ok).toBe(true);
-
-      const dealList = await callTool("hebbs-crm.list_deals", {});
-      expect(dealList.body.ok).toBe(true);
-
-      // ──────────────────────────────────────────────────────
       // Connectors (slack, google) — without OAuth creds, the
       // tools return permission_denied. That's the correct shape
       // (tool wired, awaits per-tenant connector setup).
@@ -300,7 +273,6 @@ describe("v2 parity — every v1 capability has a working v2 equivalent", () => 
         "copilot",
         "slack",
         "google",
-        "hebbs-crm",
         "triage",
       ]) {
         expect(ids.has(required)).toBe(true);
@@ -313,7 +285,6 @@ describe("v2 parity — every v1 capability has a working v2 equivalent", () => 
       expect(auditBody.toolCalls.length).toBeGreaterThan(10);
       const calledTools = new Set(auditBody.toolCalls.map((c) => c.toolName));
       expect(calledTools.has("framework.tasks.create")).toBe(true);
-      expect(calledTools.has("hebbs-crm.create_deal")).toBe(true);
       expect(calledTools.has("triage.classify")).toBe(true);
 
       // ──────────────────────────────────────────────────────

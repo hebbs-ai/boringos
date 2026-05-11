@@ -252,6 +252,8 @@ export function createAgentEngine(config: AgentEngineConfig): AgentEngine {
           runId,
           inputTokens: event.inputTokens,
           outputTokens: event.outputTokens,
+          cacheCreationTokens: event.cacheCreationTokens ?? 0,
+          cacheReadTokens: event.cacheReadTokens ?? 0,
           model: event.model,
           costUsd: event.costUsd?.toString(),
         }).catch(() => {});

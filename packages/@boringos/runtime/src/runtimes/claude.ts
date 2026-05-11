@@ -43,7 +43,7 @@ export const claudeRuntime: RuntimeModule = {
 
       const env = buildAgentEnv(ctx);
       let sessionId: string | undefined;
-      let lastCostEvent: { inputTokens: number; outputTokens: number; model: string; costUsd?: number } | undefined;
+      let lastCostEvent: { inputTokens: number; outputTokens: number; cacheCreationTokens: number; cacheReadTokens: number; model: string; costUsd?: number } | undefined;
 
       const result = await spawnAgent({
         command,
@@ -61,6 +61,8 @@ export const claudeRuntime: RuntimeModule = {
               lastCostEvent = {
                 inputTokens: event.usage.input_tokens ?? 0,
                 outputTokens: event.usage.output_tokens ?? 0,
+                cacheCreationTokens: event.usage.cache_creation_input_tokens ?? 0,
+                cacheReadTokens: event.usage.cache_read_input_tokens ?? 0,
                 model: event.model ?? model ?? "claude",
                 costUsd: event.total_cost_usd,
               };

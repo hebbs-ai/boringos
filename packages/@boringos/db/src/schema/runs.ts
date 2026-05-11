@@ -50,6 +50,8 @@ export const costEvents = pgTable("cost_events", {
   runId: uuid("run_id").references(() => agentRuns.id),
   inputTokens: integer("input_tokens").notNull().default(0),
   outputTokens: integer("output_tokens").notNull().default(0),
+  cacheCreationTokens: integer("cache_creation_tokens").notNull().default(0),
+  cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
   model: text("model"),
   costUsd: text("cost_usd"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

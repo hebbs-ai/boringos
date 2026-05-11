@@ -3,7 +3,7 @@
 // Settings → Budgets panel.
 // Spend overview, budget policies, and incidents.
 
-import { useState } from "react";
+import React, { useState } from "react";
 
 import { useAuth } from "../../auth/AuthProvider.js";
 import { useBudgets, useAgents, useCosts } from "@boringos/ui";
@@ -22,6 +22,7 @@ export function BudgetsPanel() {
   const { costs } = useCosts();
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [expandedModels, setExpandedModels] = useState<Set<string>>(new Set());
   const [formData, setFormData] = useState({
     scope: "tenant" as "tenant" | "agent",
     agentId: "",
@@ -88,6 +89,69 @@ export function BudgetsPanel() {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5);
 
+  type ModelAgentStats = {
+    agentId: string;
+    runs: number;
+    inputTokens: number;
+    outputTokens: number;
+    cacheCreationTokens: number;
+    cacheReadTokens: number;
+    costUsd: number;
+  };
+  type ModelStats = {
+    model: string;
+    runs: number;
+    inputTokens: number;
+    outputTokens: number;
+    cacheCreationTokens: number;
+    cacheReadTokens: number;
+    costUsd: number;
+    byAgent: Map<string, ModelAgentStats>;
+  };
+  const modelStatsMap = new Map<string, ModelStats>();
+  costs.forEach((cost: any) => {
+    const model = cost.model || "(unknown)";
+    let m = modelStatsMap.get(model);
+    if (!m) {
+      m = { model, runs: 0, inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0, costUsd: 0, byAgent: new Map() };
+      modelStatsMap.set(model, m);
+    }
+    const ct = Number(cost.costUsd) || 0;
+    const inT = Number(cost.inputTokens) || 0;
+    const outT = Number(cost.outputTokens) || 0;
+    const ccT = Number(cost.cacheCreationTokens) || 0;
+    const crT = Number(cost.cacheReadTokens) || 0;
+    m.runs += 1;
+    m.inputTokens += inT;
+    m.outputTokens += outT;
+    m.cacheCreationTokens += ccT;
+    m.cacheReadTokens += crT;
+    m.costUsd += ct;
+    if (cost.agentId) {
+      let a = m.byAgent.get(cost.agentId);
+      if (!a) {
+        a = { agentId: cost.agentId, runs: 0, inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0, costUsd: 0 };
+        m.byAgent.set(cost.agentId, a);
+      }
+      a.runs += 1;
+      a.inputTokens += inT;
+      a.outputTokens += outT;
+      a.cacheCreationTokens += ccT;
+      a.cacheReadTokens += crT;
+      a.costUsd += ct;
+    }
+  });
+  const modelStats = Array.from(modelStatsMap.values()).sort((a, b) => b.costUsd - a.costUsd);
+
+  const fmtTok = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : n.toString();
+  const toggleModel = (model: string) => {
+    setExpandedModels((prev) => {
+      const next = new Set(prev);
+      if (next.has(model)) next.delete(model); else next.add(model);
+      return next;
+    });
+  };
+
   return (
     <div className="space-y-6 max-w-5xl">
       {error && (
@@ -133,6 +197,72 @@ export function BudgetsPanel() {
               );
             })}
           </div>
+        </div>
+      )}
+
+      {modelStats.length > 0 && (
+        <div className="bg-bg border border-border rounded-lg overflow-hidden">
+          <div className="px-4 py-3 border-b border-border">
+            <div className="text-xs uppercase tracking-wide text-muted-strong font-medium">Spend by Model</div>
+          </div>
+          <table className="w-full text-sm">
+            <thead className="bg-bg-warm/50 border-b border-border-subtle">
+              <tr>
+                <th className="px-4 py-2 text-left text-xs font-medium text-muted-strong uppercase w-8"></th>
+                <th className="px-4 py-2 text-left text-xs font-medium text-muted-strong uppercase">Model</th>
+                <th className="px-4 py-2 text-right text-xs font-medium text-muted-strong uppercase">Runs</th>
+                <th className="px-4 py-2 text-right text-xs font-medium text-muted-strong uppercase">Input</th>
+                <th className="px-4 py-2 text-right text-xs font-medium text-muted-strong uppercase">Output</th>
+                <th className="px-4 py-2 text-right text-xs font-medium text-muted-strong uppercase">Cache W</th>
+                <th className="px-4 py-2 text-right text-xs font-medium text-muted-strong uppercase">Cache R</th>
+                <th className="px-4 py-2 text-right text-xs font-medium text-muted-strong uppercase">Cost</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border-subtle">
+              {modelStats.map((m) => {
+                const open = expandedModels.has(m.model);
+                const agentRows = Array.from(m.byAgent.values()).sort((a, b) => b.costUsd - a.costUsd);
+                return (
+                  <React.Fragment key={m.model}>
+                    <tr className="hover:bg-bg cursor-pointer" onClick={() => toggleModel(m.model)}>
+                      <td className="px-4 py-2 text-muted-strong">
+                        <button
+                          type="button"
+                          aria-label={open ? "Collapse" : "Expand"}
+                          className="text-xs w-4 inline-block text-center"
+                          onClick={(e) => { e.stopPropagation(); toggleModel(m.model); }}
+                        >
+                          {open ? "▼" : "▶"}
+                        </button>
+                      </td>
+                      <td className="px-4 py-2 text-text font-medium font-mono text-xs">{m.model}</td>
+                      <td className="px-4 py-2 text-right text-muted-strong">{m.runs}</td>
+                      <td className="px-4 py-2 text-right text-muted-strong font-mono">{fmtTok(m.inputTokens)}</td>
+                      <td className="px-4 py-2 text-right text-muted-strong font-mono">{fmtTok(m.outputTokens)}</td>
+                      <td className="px-4 py-2 text-right text-muted-strong font-mono">{fmtTok(m.cacheCreationTokens)}</td>
+                      <td className="px-4 py-2 text-right text-muted-strong font-mono">{fmtTok(m.cacheReadTokens)}</td>
+                      <td className="px-4 py-2 text-right text-text font-medium font-mono">${m.costUsd.toFixed(4)}</td>
+                    </tr>
+                    {open && agentRows.map((a) => {
+                      const agent = agents.find((x: any) => x.id === a.agentId);
+                      return (
+                        <tr key={`${m.model}:${a.agentId}`} className="bg-bg-warm/30">
+                          <td></td>
+                          <td className="px-4 py-2 pl-8 text-text-secondary text-xs">{agent?.name || a.agentId.slice(0, 8)}</td>
+                          <td className="px-4 py-2 text-right text-muted-strong text-xs">{a.runs}</td>
+                          <td className="px-4 py-2 text-right text-muted-strong font-mono text-xs">{fmtTok(a.inputTokens)}</td>
+                          <td className="px-4 py-2 text-right text-muted-strong font-mono text-xs">{fmtTok(a.outputTokens)}</td>
+                          <td className="px-4 py-2 text-right text-muted-strong font-mono text-xs">{fmtTok(a.cacheCreationTokens)}</td>
+                          <td className="px-4 py-2 text-right text-muted-strong font-mono text-xs">{fmtTok(a.cacheReadTokens)}</td>
+                          <td className="px-4 py-2 text-right text-text-secondary font-mono text-xs">${a.costUsd.toFixed(4)}</td>
+                        </tr>
+                      );
+                    })}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
 

@@ -471,6 +471,8 @@ function makeReportCost(db: Db): Tool {
       runId: z.string().uuid(),
       inputTokens: z.number().int().nonnegative().optional(),
       outputTokens: z.number().int().nonnegative().optional(),
+      cacheCreationTokens: z.number().int().nonnegative().optional(),
+      cacheReadTokens: z.number().int().nonnegative().optional(),
       model: z.string().optional(),
       costUsd: z.union([z.number(), z.string()]).optional(),
     }),
@@ -479,6 +481,8 @@ function makeReportCost(db: Db): Tool {
         runId: string;
         inputTokens?: number;
         outputTokens?: number;
+        cacheCreationTokens?: number;
+        cacheReadTokens?: number;
         model?: string;
         costUsd?: number | string;
       },
@@ -492,6 +496,8 @@ function makeReportCost(db: Db): Tool {
         runId: input.runId,
         inputTokens: input.inputTokens ?? 0,
         outputTokens: input.outputTokens ?? 0,
+        cacheCreationTokens: input.cacheCreationTokens ?? 0,
+        cacheReadTokens: input.cacheReadTokens ?? 0,
         model: input.model,
         costUsd: input.costUsd === undefined ? undefined : String(input.costUsd),
       });

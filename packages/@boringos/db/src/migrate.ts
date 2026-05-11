@@ -176,10 +176,14 @@ async function ensureSchema(db: Db): Promise<void> {
       run_id UUID REFERENCES agent_runs(id),
       input_tokens INTEGER NOT NULL DEFAULT 0,
       output_tokens INTEGER NOT NULL DEFAULT 0,
+      cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+      cache_read_tokens INTEGER NOT NULL DEFAULT 0,
       model TEXT,
       cost_usd TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
+    ALTER TABLE cost_events ADD COLUMN IF NOT EXISTS cache_creation_tokens INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE cost_events ADD COLUMN IF NOT EXISTS cache_read_tokens INTEGER NOT NULL DEFAULT 0;
 
     -- approvals + task_approvals removed: approvals are now tasks
     -- (origin_kind="agent_action") with metadata.approval. See

@@ -82,6 +82,8 @@ export interface AgentRunCallbacks {
 export interface CostEvent {
   inputTokens: number;
   outputTokens: number;
+  cacheCreationTokens?: number;
+  cacheReadTokens?: number;
   model: string;
   costUsd?: number;
 }

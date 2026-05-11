@@ -62,7 +62,7 @@ export const claudeRuntime: RuntimeModule = {
                 inputTokens: event.usage.input_tokens ?? 0,
                 outputTokens: event.usage.output_tokens ?? 0,
                 model: event.model ?? model ?? "claude",
-                costUsd: event.cost_usd,
+                costUsd: event.total_cost_usd,
               };
             }
           } catch {

@@ -77,11 +77,11 @@ export function BudgetsPanel() {
     }
   };
 
-  const totalSpend = costs.reduce((sum: number, cost: any) => sum + (cost.costUsd || 0), 0);
+  const totalSpend = costs.reduce((sum: number, cost: any) => sum + (Number(cost.costUsd) || 0), 0);
   const agentSpendMap = new Map<string, number>();
   costs.forEach((cost: any) => {
     if (cost.agentId) {
-      agentSpendMap.set(cost.agentId, (agentSpendMap.get(cost.agentId) || 0) + (cost.costUsd || 0));
+      agentSpendMap.set(cost.agentId, (agentSpendMap.get(cost.agentId) || 0) + (Number(cost.costUsd) || 0));
     }
   });
   const topAgents = Array.from(agentSpendMap.entries())

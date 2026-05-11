@@ -12,9 +12,6 @@ importers:
 
   .:
     devDependencies:
-      '@boringos-crm/server':
-        specifier: link:../boringos-crm/packages/server
-        version: link:../boringos-crm/packages/server
       '@boringos/agent':
         specifier: workspace:*
         version: link:packages/@boringos/agent
@@ -317,9 +314,6 @@ importers:
 
   packages/@boringos/shell:
     dependencies:
-      '@boringos-crm/web':
-        specifier: link:../../../../boringos-crm/packages/web
-        version: link:../../../../boringos-crm/packages/web
       '@boringos/ui':
         specifier: workspace:*
         version: link:../ui

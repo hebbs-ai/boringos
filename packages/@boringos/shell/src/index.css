@@ -1,12 +1,9 @@
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@600;700&display=swap");
 @import "tailwindcss";
 
-/* task_19 — scan external plugin packages so their Tailwind classes
- * (including arbitrary values like bg-[#04080a]) get compiled into
- * the shell's stylesheet. We scan via node_modules/<pkg>/src/** so
- * Tailwind follows the pnpm symlinks the same way Vite does for
- * imports. Add one line per plugin web package. */
-@source "../node_modules/@boringos-crm/web/src/**/*.{ts,tsx}";
+/* Third-party Module UIs ship their own CSS inlined into their
+ * `ui/index.mjs` (Vite lib mode), so Tailwind no longer needs to
+ * scan plugin source. The shell only compiles its own classes. */
 
 /* ── Semantic tokens ────────────────────────────────────────────────────────
  *  The "awake palette": calm by default, vivid on purpose.

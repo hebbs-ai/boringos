@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
 //
-// task_22 / U2.2 — GO/NO-GO gate.
+// task_22 / U2.2 — GO/NO-GO gate (kept around as an end-to-end
+// regression after U5 cut CRM over to upload-only).
 //
-// Boots BoringOS with every built-in EXCEPT the static CRM wiring,
-// then extracts `tests/fixtures/crm-0.2.0.hebbsmod`, dynamically
-// imports its `index.mjs`, hands the resulting factory to
+// Boots BoringOS with every built-in (CRM is no longer in the static
+// list — it's upload-only), extracts `tests/fixtures/crm-0.2.0.hebbsmod`,
+// dynamically imports its `index.mjs`, hands the resulting factory to
 // `app.registerModule()`, signs up a tenant, installs CRM for that
 // tenant, dispatches `crm.contacts.create`, and asserts the DB row.
 //
@@ -93,7 +94,9 @@ try {
   app.module(createTriageModule);
   app.module(createInboxTriageModule);
   app.module(createInboxReplierModule);
-  // NOTE: NO createCrmModule here — that's the whole point of U2.2.
+  // NOTE: CRM is no longer in the static module list — that's U5.
+  // It's loaded below from the .hebbsmod fixture, which is the whole
+  // point of this script.
 
   server = await app.listen(HTTP_PORT);
   step("boot", true, server.url);

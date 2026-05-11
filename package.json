@@ -20,7 +20,6 @@
   },
   "packageManager": "pnpm@9.15.4",
   "devDependencies": {
-    "@boringos-crm/server": "link:../boringos-crm/packages/server",
     "@boringos/agent": "workspace:*",
     "@boringos/connector-google": "workspace:*",
     "@boringos/core": "workspace:*",

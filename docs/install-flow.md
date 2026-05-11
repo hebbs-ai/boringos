@@ -4,7 +4,7 @@ How a Module is **packaged**, **uploaded**, **installed**, **shown in the UI**, 
 
 This doc is the canonical spec for the WordPress/Shopify-style end-user flow ("upload a zip, click install"). The runtime primitives (`Module`, `ModuleRegistry`, `InstallManager`, `module_installs`) are described in [`MODULES.md`](../MODULES.md) and `packages/@boringos/module-sdk/src/types.ts`. This doc layers the **package + lifecycle + UI** on top of those primitives.
 
-> **Implementation status (2026-05).** LAYER 3 (per-tenant install / uninstall) is **shipped** — see `module-admin-routes.ts` and `install-manager.ts`. LAYER 1 (`.hebbsmod` bundle, `module_packages` table, signed upload) and LAYER 2 (post-`listen()` runtime registration) are **specced here, not yet implemented**. Modules today are registered in code via `app.module(...)` at boot; this doc is the target state for hot upload + install from the shell.
+> **Implementation status (task_22, 2026-05-11).** **LAYER 1 + LAYER 2 shipped.** End-to-end loop is real: a `.hebbsmod` uploaded via the Apps screen (`POST /api/admin/modules/upload`) is extracted, signature-checked (or accepted with a warning when `HEBBS_DEV_MODULES=true`), recorded in `module_packages`, dynamic-imported, and registered with the live host — tools/skills/webhooks/routines all wire up post-`listen()`. The shell hot-loads the module's UI via `import("/modules/<id>/ui/index.mjs")`. Per-tenant install (LAYER 3, the original `module-admin-routes.ts`/`install-manager.ts`) stacks on top unchanged. CRM is the first third-party module to ship this way and is no longer statically wired into `scripts/dev-server.mjs` — see [`docs/blockers/task_22_module_packages_upload_install.md`](blockers/task_22_module_packages_upload_install.md).
 
 ---
 

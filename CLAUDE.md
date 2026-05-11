@@ -70,7 +70,12 @@ Three primitives — see [`docs/new_thesis.md`](docs/new_thesis.md), [`BUILD-A-M
 | **Tool** | Zod-typed callable, dispatched at `POST /api/tools/<module>.<name>` |
 | **Module** | Bundles skills + tools + (optionally) schema, routines, webhooks, OAuth, UI |
 
-Hosts register modules via `app.module(myModule)`. Built-in modules live in `packages/@boringos/core/src/modules/`. There is one Module concept, one install pipeline (`install-manager`), and one HTTP surface (`/api/admin/{modules,installs,...}` + `/api/tools/<module>.<tool>`). The packaging + upload flow (`.hebbsmod` bundles, `module_packages` table) is specced in [`docs/install-flow.md`](docs/install-flow.md) — currently per-tenant install (LAYER 3) is implemented; bundle upload (LAYER 1) and runtime registration (LAYER 2) are still in flight.
+Modules register via two paths:
+
+1. **Static, at boot** — `app.module(myModule)` before `app.listen()`. Used for framework built-ins (framework, memory, drive, inbox, workflow, copilot, slack, google, triage, inbox-triage, inbox-replier). They live in `packages/@boringos/core/src/modules/` and are the only modules the dev-server wires up.
+2. **Runtime, via upload** — third-party `.hebbsmod` bundles dropped onto the Apps screen go through `POST /api/admin/modules/upload`. The framework extracts, signature-checks (or accepts with `HEBBS_DEV_MODULES=true`), dynamic-imports the bundle, and calls the same registration path on a live process. See [`docs/install-flow.md`](docs/install-flow.md). CRM is the first third-party module to ship this way — it has no static workspace link in the framework.
+
+One Module concept, one install pipeline (`install-manager`), one HTTP surface (`/api/admin/{modules,installs,...}` + `/api/tools/<module>.<tool>`).
 
 ## Non-obvious behavior worth knowing
 

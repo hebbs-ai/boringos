@@ -15,15 +15,16 @@
 
 | Field | Value |
 |---|---|
-| **State** | DRAFTED — awaiting kickoff |
-| **Owner** | TBD |
-| **Branch** | `main` (small, sequential PRs per phase) |
-| **Started** | — |
+| **State** | SHIPPED |
+| **Owner** | parag |
+| **Branch** | `main` (small, sequential commits per phase) |
+| **Started** | 2026-05-11 |
 | **Last updated** | 2026-05-11 |
-| **Estimated effort** | 10–15 dev-days across 5 phases; U2.2 is a 1-day go/no-go gate |
+| **Closing commit** | _<u5-commit-sha>_ |
+| **Estimated effort** | 10–15 dev-days across 5 phases; U2.2 was the 1-day go/no-go gate |
 | **Prerequisites** | task_21 landed (single Module system, no v1 surface). Per-tenant install/uninstall works. |
 | **Spec** | [`docs/install-flow.md`](../install-flow.md) — read this first for the architecture |
-| **Touches docs** | [`BUILD-A-MODULE.md`](../../BUILD-A-MODULE.md) (author-facing), [`MODULES.md`](../../MODULES.md) (`kind` field), [`install-flow.md`](../install-flow.md) (status update once shipped) |
+| **Touches docs** | [`BUILD-A-MODULE.md`](../../BUILD-A-MODULE.md) (author-facing), [`MODULES.md`](../../MODULES.md) (`kind` field), [`install-flow.md`](../install-flow.md) (status banner updated) |
 
 ---
 
@@ -328,3 +329,4 @@ Re-install requires re-upload. That's the design.
 | Date | Phase | Status | Notes |
 |---|---|---|---|
 | 2026-05-11 | — | DRAFTED | Task created. Specced against `install-flow.md`. Auto-pack design captured. Awaiting kickoff. |
+| 2026-05-11 | U5 | LANDED | CRM removed from static wiring. Framework boot now ships built-ins only. CRM installable via `boringos-crm/packages/server/dist/crm-0.2.0.hebbsmod` upload. Re-install requires re-upload — the design contract is real. |

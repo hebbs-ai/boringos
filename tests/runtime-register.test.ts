@@ -4,10 +4,10 @@
  * Mirrors `tests/v2-builtin-modules.test.ts`'s shape but exercises
  * the *post-listen* registration path. We boot BoringOS with the
  * framework + memory modules only, then call
- * `app.registerModule(createCrmModule, app.factoryDeps!)` after
- * listen() has resolved. CRM is imported statically from
- * `@boringos-crm/server` (NOT from the .hebbsmod bundle — that's
- * the U2.2 demo script's job). What we test here is that the
+ * `app.registerModule(factory, app.factoryDeps!)` after listen()
+ * has resolved. The CRM factory is dynamic-imported from the
+ * extracted `.hebbsmod` fixture — post-U5, CRM is upload-only and
+ * has no static workspace link. What we test here is that the
  * `registerModule()` method itself wires the registries + the
  * install manager correctly.
  *
@@ -29,13 +29,59 @@ describe("task_22 — runtime registerModule()", () => {
         "@boringos/core"
       );
       const { signCallbackToken } = await import("@boringos/agent");
-      const { createCrmModule } = await import("@boringos-crm/server");
-      const { mkdtemp } = await import("node:fs/promises");
+      const { mkdtemp, mkdir, copyFile } = await import("node:fs/promises");
+      const { existsSync } = await import("node:fs");
       const { tmpdir } = await import("node:os");
       const { join } = await import("node:path");
+      const { pathToFileURL } = await import("node:url");
+      const { spawnSync } = await import("node:child_process");
       const { randomUUID } = await import("node:crypto");
 
       const dataDir = await mkdtemp(join(tmpdir(), "boringos-u2-reg-"));
+
+      // Post-U5: CRM is upload-only. Extract the fixture inside the
+      // repo tree (so the bundle's externalised `@boringos/*` imports
+      // resolve against the workspace's node_modules), then dynamic-
+      // import the factory the same way the upload route does.
+      const storeDir = join(
+        process.cwd(),
+        ".data",
+        `module-store-runtime-reg-${Date.now()}`,
+      );
+      await mkdir(storeDir, { recursive: true });
+      // Known CRM-bundle packaging bug: the inlined @hebbs/sdk uses
+      // `import.meta.url` to find `../proto/hebbs.proto` at module
+      // load time. Materialise the file there best-effort so the
+      // dynamic-import doesn't crash. Same workaround as
+      // module-package-upload.test.ts and the U2.2 demo script.
+      const protoSrc =
+        "/Users/paragarora/Documents/Workspace/research/hebbs-repos/hebbs-typescript/proto/hebbs.proto";
+      await mkdir(join(storeDir, "proto"), { recursive: true });
+      try {
+        if (existsSync(protoSrc)) {
+          await copyFile(protoSrc, join(storeDir, "proto", "hebbs.proto"));
+        }
+      } catch {
+        // Best-effort — failures surface as a clear import error.
+      }
+      const extractDir = join(storeDir, "crm@0.2.0");
+      await mkdir(extractDir, { recursive: true });
+      const fixturePath = join(__dirname, "fixtures", "crm-0.2.0.hebbsmod");
+      const unzip = spawnSync("unzip", ["-q", fixturePath, "-d", extractDir]);
+      if (unzip.status !== 0) {
+        throw new Error(
+          `unzip failed (status=${unzip.status}): ${unzip.stderr?.toString() ?? ""}`,
+        );
+      }
+      const bundleMod = (await import(
+        pathToFileURL(join(extractDir, "index.mjs")).href
+      )) as { default?: unknown; createCrmModule?: unknown };
+      const factory = (bundleMod.default ?? bundleMod.createCrmModule) as
+        | ((deps: unknown) => unknown)
+        | undefined;
+      if (typeof factory !== "function") {
+        throw new Error("crm bundle did not expose a default factory");
+      }
       const jwtSecret = "u2-runtime-register-secret";
       const app = new BoringOS({
         // Pin a non-default Postgres port so we don't collide with
@@ -67,7 +113,7 @@ describe("task_22 — runtime registerModule()", () => {
         // ── Step 1: register CRM at runtime ─────────────────────
         const deps = app.factoryDeps;
         expect(deps).not.toBeNull();
-        const regResult = await app.registerModule(createCrmModule, deps!);
+        const regResult = await app.registerModule(factory as Parameters<typeof app.registerModule>[0], deps!);
         expect(regResult.moduleId).toBe("crm");
         expect(regResult.toolsAdded).toBeGreaterThan(0);
         expect(regResult.skillsAdded).toBeGreaterThanOrEqual(0);
@@ -235,7 +281,7 @@ describe("task_22 — runtime registerModule()", () => {
         // still see the module work. The install row + DB table
         // persisted across the unregister; we just have to repopulate
         // the in-memory registries.
-        const reRegResult = await app.registerModule(createCrmModule, deps!);
+        const reRegResult = await app.registerModule(factory as Parameters<typeof app.registerModule>[0], deps!);
         expect(reRegResult.moduleId).toBe("crm");
         expect(reRegResult.toolsAdded).toBe(regResult.toolsAdded);
         expect(reRegResult.skillsAdded).toBe(regResult.skillsAdded);
@@ -264,6 +310,10 @@ describe("task_22 — runtime registerModule()", () => {
         expect(postReRegBody.result.data.firstName).toBe("Grace");
       } finally {
         await server.close();
+        try {
+          const { rm } = await import("node:fs/promises");
+          await rm(storeDir, { recursive: true, force: true });
+        } catch {}
       }
     },
     120_000,

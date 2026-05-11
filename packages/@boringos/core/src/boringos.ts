@@ -52,7 +52,7 @@ import type {
   InstallManager,
   SettingRegistry,
 } from "@boringos/agent";
-import type { Module, ModuleFactory } from "@boringos/module-sdk";
+import type { Module, ModuleFactory, ModuleFactoryDeps } from "@boringos/module-sdk";
 import { createConnectorRoutes } from "./connector-routes.js";
 import { createAdminRoutes } from "./admin-routes.js";
 import { createRealtimeBus } from "./realtime.js";
@@ -98,8 +98,40 @@ export class BoringOS {
   //     and by hybrid modules that own their own schema.
   private moduleEntries: Array<Module | ModuleFactory> = [];
 
+  // ── Runtime wiring (populated in listen()) ────────────────────────
+  // The boot loop builds the registries, install manager and factory
+  // deps; we capture them here so post-listen `registerModule` /
+  // `unregisterModule` calls can reuse them without the caller
+  // re-supplying deps. This is what `.hebbsmod` upload (task_22) needs.
+  private moduleRegistry: ModuleRegistry | null = null;
+  private toolRegistry: ToolRegistry | null = null;
+  private skillRegistry: SkillRegistry | null = null;
+  private settingRegistry: SettingRegistry | null = null;
+  private installManagerRef: InstallManager | null = null;
+  // Mutated by registerModule(). Shared by reference with the
+  // install-manager (which reads `deps.modules` lazily) and the
+  // module-admin routes closure.
+  private boundModules: Module[] = [];
+  // The same factory-deps holder the boot loop builds. Mutable by
+  // design — the engine + buses populate fields post-construct
+  // (see comments in listen()).
+  private moduleFactoryDeps: ModuleFactoryDeps | null = null;
+  // The root Hono app — kept so post-listen registers can mount
+  // module webhooks (when wired in U3).
+  private honoApp: Hono | null = null;
+
   constructor(config: BoringOSConfig = {}) {
     this.config = config;
+  }
+
+  /**
+   * Internal accessor for tests + task_22 demo scripts. Exposes the
+   * mutable factory-deps holder so `registerModule()` callers (the
+   * forthcoming upload route, the U2 PoC) can pass the same `deps`
+   * the boot loop used. Returns `null` before `listen()` runs.
+   */
+  get factoryDeps(): ModuleFactoryDeps | null {
+    return this.moduleFactoryDeps;
   }
 
   memory(provider: MemoryProvider): this {
@@ -204,6 +236,141 @@ export class BoringOS {
     return this;
   }
 
+  /**
+   * Wire a single Module into the running registries. Used by the
+   * boot loop and (post-`listen()`) by the `.hebbsmod` upload route +
+   * the task_22 / U2 demo script.
+   *
+   * Behaviour matches the inline loop the boot path used previously:
+   *  - Resolve `ModuleFactory` against `factoryDeps`
+   *  - `moduleRegistry.register` (which also walks tools + skills
+   *    into their per-domain registries)
+   *  - register every contributed setting
+   *  - push onto the shared `boundModules` array — the install
+   *    manager + admin routes read from this array lazily, so
+   *    post-listen additions are picked up automatically
+   *  - kick off `installManager.backfill([mod])` for default-install
+   *    modules so brand-new uploads become available for every
+   *    existing tenant without a host restart (fire-and-forget;
+   *    matches boot semantics)
+   *
+   * Webhooks: the documented `/api/webhooks/<id>/<event>` mount is
+   * not yet wired in the boot path (only `connector-routes.ts`
+   * references it in a comment). registerModule keeps that parity —
+   * U3 will land the actual webhook mount once the route exists.
+   *
+   * Routines: `Routine[]` from a Module is metadata; the scheduler
+   * reads `routines` from the DB, not from module manifests. Seeding
+   * the DB happens via `installManager.install`'s seeding path.
+   */
+  async registerModule(
+    mod: Module | ModuleFactory,
+    factoryDeps?: ModuleFactoryDeps,
+  ): Promise<{ moduleId: string; toolsAdded: number; skillsAdded: number }> {
+    if (!this.moduleRegistry || !this.toolRegistry || !this.skillRegistry || !this.settingRegistry) {
+      throw new Error(
+        "registerModule() called before listen(). Call app.module(...) " +
+          "for boot-time registration, or wait until after listen() resolves " +
+          "for runtime registration.",
+      );
+    }
+    const deps = factoryDeps ?? this.moduleFactoryDeps;
+    if (!deps) {
+      throw new Error(
+        "registerModule() requires factoryDeps. Pass them explicitly or " +
+          "call after listen() so the framework can use the captured deps.",
+      );
+    }
+
+    // Track the active moduleEntries list so a subsequent `listen()`
+    // call (or a snapshot from outside) reflects the runtime registration.
+    if (!this.moduleEntries.includes(mod)) {
+      this.moduleEntries.push(mod);
+    }
+
+    const resolved: Module = typeof mod === "function" ? mod(deps) : mod;
+    const beforeTools = this.toolRegistry.list().length;
+    const beforeSkills = this.skillRegistry.list().length;
+
+    this.moduleRegistry.register(resolved);
+    for (const def of resolved.settings ?? []) {
+      this.settingRegistry.register("module", resolved.id, def);
+    }
+    this.boundModules.push(resolved);
+
+    // Default-install backfill — only meaningful after the
+    // install-manager exists (i.e. post-listen). At boot time the
+    // manager isn't built yet; the existing boot path runs a single
+    // backfill across all modules after the loop.
+    if (this.installManagerRef && resolved.defaultInstall !== false) {
+      void this.installManagerRef
+        .backfill([resolved])
+        .catch((e) => {
+          // eslint-disable-next-line no-console
+          console.error(
+            `[boringos] backfill failed for newly-registered module ${resolved.id}:`,
+            e,
+          );
+        });
+    }
+
+    return {
+      moduleId: resolved.id,
+      toolsAdded: this.toolRegistry.list().length - beforeTools,
+      skillsAdded: this.skillRegistry.list().length - beforeSkills,
+    };
+  }
+
+  /**
+   * Inverse of `registerModule()`. Drops every tool/skill/setting
+   * the module pushed and removes it from the registry. Does NOT
+   * touch per-tenant install rows — callers should uninstall the
+   * module for every affected tenant first (see U3.2).
+   *
+   * Today this is the structural skeleton task_22's U3.2 fills in;
+   * for U2 it just powers the demo script's cleanup path so the
+   * gate run doesn't leak registrations across iterations.
+   */
+  async unregisterModule(id: string): Promise<{
+    moduleId: string;
+    toolsRemoved: number;
+    skillsRemoved: number;
+    restartRecommended: true;
+  }> {
+    if (!this.moduleRegistry || !this.toolRegistry || !this.skillRegistry || !this.settingRegistry) {
+      throw new Error("unregisterModule() called before listen().");
+    }
+    const beforeTools = this.toolRegistry.list().length;
+    const beforeSkills = this.skillRegistry.list().length;
+
+    // moduleRegistry.unregister already walks tools + skills.
+    this.moduleRegistry.unregister(id);
+    // SettingRegistry has no per-module unregister API today; settings
+    // are sticky until host restart. Acknowledged via the
+    // `restartRecommended: true` return.
+    // boundModules array (shared by reference with install-manager
+    // and admin routes) — strip the entry so post-uninstall views
+    // don't list it.
+    for (let i = this.boundModules.length - 1; i >= 0; i -= 1) {
+      if (this.boundModules[i].id === id) this.boundModules.splice(i, 1);
+    }
+    // moduleEntries too, so a subsequent listen() (test reset path)
+    // doesn't re-register the dropped module.
+    for (let i = this.moduleEntries.length - 1; i >= 0; i -= 1) {
+      const entry = this.moduleEntries[i];
+      const candidateId =
+        typeof entry === "function" ? undefined : entry.id;
+      if (candidateId === id) this.moduleEntries.splice(i, 1);
+    }
+
+    return {
+      moduleId: id,
+      toolsRemoved: beforeTools - this.toolRegistry.list().length,
+      skillsRemoved: beforeSkills - this.skillRegistry.list().length,
+      restartRecommended: true,
+    };
+  }
+
   async listen(port?: number): Promise<StartedServer> {
     const listenPort = port ?? 3000;
 
@@ -249,35 +416,6 @@ export class BoringOS {
       tools: toolRegistry,
       skills: skillRegistry,
     });
-    // ModuleFactory functions are resolved here, after the DB +
-    // drive are available (memory provider, agent + workflow
-    // engines are wired in by reference later — built-ins that
-    // need them close over the deps object). The factory pattern
-    // lets built-ins access framework services without leaking
-    // those types into the SDK's Module shape.
-    const factoryDeps = {
-      db: dbConn.db,
-      memory: this.memoryProvider,
-      drive,
-      // engine + workflowEngine + eventBus are populated later in
-      // this method; built-ins that need them read from the deps
-      // object at call time, not at factory time.
-      engine: undefined as unknown,
-      workflowEngine: undefined as unknown,
-      toolRegistry: toolRegistry,
-      realtimeBus: undefined as unknown,
-      eventBus: undefined as unknown,
-    };
-    const boundModules: Module[] = [];
-    for (const entry of this.moduleEntries) {
-      const mod = typeof entry === "function"
-        ? entry(factoryDeps)
-        : entry;
-      moduleRegistry.register(mod);
-      boundModules.push(mod);
-    }
-    const hasModules = boundModules.length > 0;
-
     // Tenant settings registry — aggregates SettingDefinition entries
     // from every registered module + the framework's own well-known
     // keys. Exposed via GET /api/admin/settings/manifest so the shell
@@ -292,12 +430,43 @@ export class BoringOS {
       type: "boolean",
       default: false,
     });
-    // Module-contributed settings.
-    for (const mod of boundModules) {
-      for (const def of mod.settings ?? []) {
-        settingRegistry.register("module", mod.id, def);
-      }
+    // ModuleFactory functions are resolved here, after the DB +
+    // drive are available (memory provider, agent + workflow
+    // engines are wired in by reference later — built-ins that
+    // need them close over the deps object). The factory pattern
+    // lets built-ins access framework services without leaking
+    // those types into the SDK's Module shape.
+    const factoryDeps: ModuleFactoryDeps = {
+      db: dbConn.db,
+      memory: this.memoryProvider,
+      drive,
+      // engine + workflowEngine + eventBus are populated later in
+      // this method; built-ins that need them read from the deps
+      // object at call time, not at factory time.
+      engine: undefined as unknown,
+      workflowEngine: undefined as unknown,
+      toolRegistry: toolRegistry,
+      realtimeBus: undefined as unknown,
+      eventBus: undefined as unknown,
+    };
+    const boundModules: Module[] = [];
+
+    // Stash everything `registerModule()` needs on `this` so the same
+    // method handles boot wiring AND post-listen runtime registration
+    // (task_22 / U2.1). The install manager is wired later in this
+    // method; until that happens, registerModule() short-circuits the
+    // install-manager calls.
+    this.moduleRegistry = moduleRegistry;
+    this.toolRegistry = toolRegistry;
+    this.skillRegistry = skillRegistry;
+    this.settingRegistry = settingRegistry;
+    this.boundModules = boundModules;
+    this.moduleFactoryDeps = factoryDeps;
+
+    for (const entry of this.moduleEntries) {
+      await this.registerModule(entry, factoryDeps);
     }
+    const hasModules = boundModules.length > 0;
 
     // Construct the install manager early so the new-tenant hook
     // can fire onTenantCreate during signup. Backfill of existing
@@ -308,12 +477,21 @@ export class BoringOS {
     const installManagerEarly: InstallManager | undefined = hasModules
       ? createInstallManager({
           db: dbConn.db,
+          // Pass the shared `boundModules` array by reference so
+          // post-listen `registerModule()` additions show up in the
+          // install manager too. The manager's internal `getModule`
+          // helper resolves from this array on every call.
           modules: boundModules,
           realtimeBus: {
             publish: (event) => realtimeBusRef?.publish(event as Parameters<NonNullable<typeof realtimeBusRef>["publish"]>[0]),
           },
         })
       : undefined;
+    // Expose the install manager to post-listen `registerModule()`
+    // callers (the task_22 upload route + the U2 demo script) so a
+    // newly-registered defaultInstall module gets its install rows
+    // backfilled without a host restart.
+    this.installManagerRef = installManagerEarly ?? null;
 
     // 6. Build context pipeline
     const pipeline = new ContextPipeline();
@@ -478,6 +656,9 @@ export class BoringOS {
 
     // 11. Build Hono app
     const app = new Hono();
+    // Expose for post-listen registers (so future U3 work can mount
+    // module webhooks at /api/webhooks/<id>/<event>).
+    this.honoApp = app;
 
     // Health endpoint — surfaces module count so a quick curl tells
     // you which modules are loaded.

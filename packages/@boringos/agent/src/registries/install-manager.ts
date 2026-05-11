@@ -86,7 +86,13 @@ export interface InstallManagerDeps {
 }
 
 export function createInstallManager(deps: InstallManagerDeps): InstallManager {
-  const moduleById = new Map(deps.modules.map((m) => [m.id, m]));
+  // Resolve `deps.modules` on every lookup so post-listen
+  // `app.registerModule()` calls (task_22 / U2) are seen by the
+  // install manager. Building a Map up-front would freeze the list at
+  // construction time and any module added at runtime would be invisible
+  // to install / uninstall / isInstalled.
+  const getModule = (id: string): Module | undefined =>
+    deps.modules.find((m) => m.id === id);
 
   // Adapt a Drizzle Db to the SDK's loose `ModuleDb` interface so
   // lifecycle hooks can run raw SQL without knowing about Drizzle.
@@ -219,7 +225,7 @@ export function createInstallManager(deps: InstallManagerDeps): InstallManager {
     },
 
     async install(moduleId, tenantId) {
-      const mod = moduleById.get(moduleId);
+      const mod = getModule(moduleId);
       if (!mod) {
         return { ok: false, hookError: `Unknown module ${moduleId}` };
       }
@@ -250,7 +256,7 @@ export function createInstallManager(deps: InstallManagerDeps): InstallManager {
     },
 
     async uninstall(moduleId, tenantId) {
-      const mod = moduleById.get(moduleId);
+      const mod = getModule(moduleId);
       if (!mod) {
         return { ok: false, hookError: `Unknown module ${moduleId}` };
       }
@@ -329,7 +335,7 @@ export function createInstallManager(deps: InstallManagerDeps): InstallManager {
       // default) without forcing test setups + new-tenant flows
       // through a separate backfill step. Modules with
       // `defaultInstall: false` require explicit install.
-      const mod = moduleById.get(moduleId);
+      const mod = getModule(moduleId);
       if (!mod || mod.defaultInstall === false) return false;
       try {
         await writeInstallRow(mod, tenantId);

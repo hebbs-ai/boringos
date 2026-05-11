@@ -280,6 +280,19 @@ async function bundleEntry(
     target: "node22",
     // Every framework package is provided by the host at runtime.
     external: ["@boringos/*"],
+    // CJS deps that get pulled into ESM bundles (e.g. @grpc/grpc-js
+    // via @google-cloud/...) use the runtime `require()` to load
+    // their internal submodules. Pure ESM doesn't define `require`,
+    // so esbuild's CJS-in-ESM shim throws
+    // `Dynamic require of "process" is not supported` at load time.
+    // The standard fix is to inject a `createRequire(import.meta.url)`
+    // banner so those internal `require()` calls resolve normally.
+    // Surfaced by task_22 U2 PoC — without this banner, the runtime
+    // dynamic-import of a packed CRM bundle dies before reaching the
+    // factory call.
+    banner: {
+      js: "import { createRequire as __hebbsCreateRequire } from \"node:module\";\nconst require = __hebbsCreateRequire(import.meta.url);",
+    },
     // Keep readable JS — the bundle is < 2MB and inspected during
     // signature verification; minification gains nothing here.
     minify: false,

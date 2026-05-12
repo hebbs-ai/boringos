@@ -44,6 +44,9 @@ export type { WorkspaceConfig, WorkspaceResult } from "./workspace.js";
 export { syncSkill, injectSkills } from "./skills.js";
 export type { SkillSyncConfig, InjectedSkill } from "./skills.js";
 
+export { resolveWakeContext } from "./wake-context.js";
+export type { WakeContext } from "./wake-context.js";
+
 export { createAgentFromTemplate, createTeam, buildOrgTree, BUILT_IN_TEAMS } from "./templates.js";
 export type { AgentTemplateConfig, CreatedAgent, TeamTemplate, OrgNode } from "./templates.js";
 

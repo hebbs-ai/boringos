@@ -430,6 +430,17 @@ export class BoringOS {
     const driveRoot = this.config.drive?.root ?? "./.data/drive";
     const drive = this.config.drive?.backend ?? createLocalStorage({ root: driveRoot });
 
+    // task_24 — Drive-backed memory is the default when no external
+    // memory provider was wired via app.memory(...). Installs without
+    // Hebbs (or any other backend) are no longer amnesiac: every
+    // tenant gets a file-based memory under their Drive namespace,
+    // routed by wake-owner (user vs tenant scope). External
+    // providers continue to take precedence if explicitly set.
+    if (this.memoryProvider === nullMemory) {
+      const { createDriveMemory } = await import("@boringos/memory");
+      this.memoryProvider = createDriveMemory({ drive });
+    }
+
     // 4. Build runtime registry
     const runtimes = createRuntimeRegistry();
     for (const rt of [claudeRuntime, chatgptRuntime, geminiRuntime, ollamaRuntime, commandRuntime, webhookRuntime]) {

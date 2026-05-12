@@ -34,12 +34,14 @@ export const createMemoryModule: ModuleFactory = (deps) => {
 
   const rememberTool: Tool = {
     name: "remember",
-    description: "Store a fact for cross-run recall",
+    description:
+      "Store a fact for cross-run recall. Default scope follows the wake's human context: 'user' when an owner is set (lands under users/<owner>/memory/notes/), 'tenant' otherwise (lands under shared/memory/notes/). Override scope: 'tenant' to promote a fact to tenant-canonical truth.",
     inputs: z.object({
       content: z.string(),
       tags: z.array(z.string()).optional(),
       importance: z.number().optional(),
       entityId: z.string().optional(),
+      scope: z.enum(["user", "tenant"]).optional(),
     }),
     async handler(
       input: {
@@ -47,8 +49,9 @@ export const createMemoryModule: ModuleFactory = (deps) => {
         tags?: string[];
         importance?: number;
         entityId?: string;
+        scope?: "user" | "tenant";
       },
-      _ctx: ToolContext,
+      ctx: ToolContext,
     ): Promise<ToolResult> {
       if (!memory) {
         return {
@@ -56,26 +59,48 @@ export const createMemoryModule: ModuleFactory = (deps) => {
           error: { code: "upstream_unavailable", message: "Memory provider not configured", retryable: false },
         };
       }
+      const scope = input.scope ?? (ctx.wakeOwnerUserId ? "user" : "tenant");
+      if (scope === "user" && !ctx.wakeOwnerUserId) {
+        return {
+          ok: false,
+          error: {
+            code: "invalid_input",
+            message:
+              "Cannot write user-scope memory without a wake owner. Route this fact to scope='tenant' or invoke from a user-initiated wake.",
+            retryable: false,
+          },
+        };
+      }
       const id = await memory.remember(input.content, {
+        tenantId: ctx.tenantId,
+        scope,
+        ownerUserId: ctx.wakeOwnerUserId,
         entityId: input.entityId,
         tags: input.tags,
         importance: input.importance,
       });
-      return { ok: true, result: { memoryId: id } };
+      return { ok: true, result: { memoryId: id, scope } };
     },
   };
 
   const recallTool: Tool = {
     name: "recall",
-    description: "Semantic search across tenant memory",
+    description:
+      "Search across the in-scope memory tree. Returns the top matches with their content + path. Default: searches both user-scope (the wake-owner's) and tenant-shared. Restrict with `scope` if you want one or the other.",
     inputs: z.object({
       query: z.string(),
       limit: z.number().int().positive().optional(),
       entityId: z.string().optional(),
+      scope: z.enum(["user", "tenant"]).optional(),
     }),
     async handler(
-      input: { query: string; limit?: number; entityId?: string },
-      _ctx: ToolContext,
+      input: {
+        query: string;
+        limit?: number;
+        entityId?: string;
+        scope?: "user" | "tenant";
+      },
+      ctx: ToolContext,
     ): Promise<ToolResult> {
       if (!memory) {
         return {
@@ -84,6 +109,9 @@ export const createMemoryModule: ModuleFactory = (deps) => {
         };
       }
       const results = await memory.recall(input.query, {
+        tenantId: ctx.tenantId,
+        scope: input.scope,
+        ownerUserId: ctx.wakeOwnerUserId,
         limit: input.limit,
         entityId: input.entityId,
       });
@@ -93,11 +121,12 @@ export const createMemoryModule: ModuleFactory = (deps) => {
 
   const forgetTool: Tool = {
     name: "forget",
-    description: "Remove a memory by id",
+    description:
+      "Remove a memory by id. The id is what `remember` returned — the path relative to the tenant root.",
     inputs: z.object({ memoryId: z.string() }),
     async handler(
       input: { memoryId: string },
-      _ctx: ToolContext,
+      ctx: ToolContext,
     ): Promise<ToolResult> {
       if (!memory) {
         return {
@@ -105,7 +134,11 @@ export const createMemoryModule: ModuleFactory = (deps) => {
           error: { code: "upstream_unavailable", message: "Memory provider not configured", retryable: false },
         };
       }
-      await memory.forget(input.memoryId);
+      // forget() takes the absolute backend path. The drive-backed
+      // provider expects `<tenantId>/<rel>` — compose from ctx +
+      // the rel id remember() handed out.
+      const fullPath = `${ctx.tenantId}/${input.memoryId}`;
+      await memory.forget(fullPath);
       return { ok: true, result: { ok: true } };
     },
   };

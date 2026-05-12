@@ -1210,6 +1210,77 @@ export class BoringOS {
       console.error("[boringos] recoverPending failed:", err);
     }
 
+    // 10d. Rehydrate third-party modules from the on-disk store.
+    // `module_installs` rows say "this tenant has CRM installed" but
+    // the in-process tool registry is rebuilt empty on every boot;
+    // only built-ins (registered via app.module() in the host's
+    // entry script) come back automatically. Without this loop, a
+    // restart leaves every `.hebbsmod` module unregistered until
+    // someone re-uploads — the UI then sees 404 "Unknown tool" for
+    // every crm.*, etc. and renders as empty.
+    //
+    // Re-runs the same dynamic-import + registerModule path the
+    // upload route uses (see `module-package-routes.ts`).
+    try {
+      const { readdir, readFile } = await import("node:fs/promises");
+      const { resolve: pathResolve } = await import("node:path");
+      const storeDir =
+        process.env.MODULES_STORE_DIR ??
+        pathResolve(process.cwd(), ".data", "module-store");
+      let storeEntries: string[] = [];
+      try {
+        storeEntries = await readdir(storeDir);
+      } catch {
+        /* no store dir → no third-party modules to hydrate */
+      }
+      let hydrated = 0;
+      for (const name of storeEntries) {
+        if (name.startsWith(".")) continue;
+        const moduleDir = pathResolve(storeDir, name);
+        const manifestPath = pathResolve(moduleDir, "module.json");
+        let manifest: { id: string; version?: string } | null = null;
+        try {
+          manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {
+            id: string;
+            version?: string;
+          };
+        } catch {
+          continue; // malformed or missing manifest — skip
+        }
+        // Skip if a same-id module is already bound (built-in
+        // shadows third-party, and re-uploading would re-trigger
+        // unregister first anyway).
+        if (this.boundModules.find((m) => m.id === manifest.id)) continue;
+
+        try {
+          const entryUrl = new URL(`file://${moduleDir}/index.mjs`);
+          const imported = (await import(entryUrl.href)) as Record<
+            string,
+            unknown
+          >;
+          const factoryName = `create${manifest.id.charAt(0).toUpperCase()}${manifest.id.slice(1)}Module`;
+          const entry =
+            (imported?.["default"] as Module | ModuleFactory | undefined) ??
+            (imported?.[factoryName] as Module | ModuleFactory | undefined);
+          if (!entry) continue;
+          await this.registerModule(entry, this.moduleFactoryDeps);
+          hydrated += 1;
+        } catch (err) {
+          console.warn(
+            `[boringos] failed to rehydrate module "${name}" from store:`,
+            err instanceof Error ? err.message : err,
+          );
+        }
+      }
+      if (hydrated > 0) {
+        console.log(
+          `[boringos] rehydrated ${hydrated} third-party module(s) from ${storeDir}`,
+        );
+      }
+    } catch (err) {
+      console.error("[boringos] module rehydration failed:", err);
+    }
+
     //
 
     // 11. Start HTTP server

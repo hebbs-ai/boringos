@@ -5,6 +5,29 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>BoringOS</title>
+    <!--
+      Theme boot — runs before any React/CSS so the initial paint matches
+      the user's preference (no flash of unstyled content). Mirrors the
+      resolution logic in src/theme/ThemeProvider.tsx; keep in sync.
+    -->
+    <script>
+      (function () {
+        try {
+          var p = localStorage.getItem("boringos.theme");
+          if (p !== "light" && p !== "dark" && p !== "system") p = "system";
+          var dark =
+            p === "dark" ||
+            (p === "system" &&
+              window.matchMedia &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          var theme = dark ? "dark" : "light";
+          document.documentElement.setAttribute("data-theme", theme);
+          document.documentElement.style.colorScheme = theme;
+        } catch (e) {
+          /* localStorage disabled — fall through to default light. */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

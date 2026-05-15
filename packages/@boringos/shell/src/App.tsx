@@ -16,6 +16,7 @@ import { Layout } from "./chrome/Layout.js";
 import { AuthProvider, Login, RequireAdmin, RequireAuth, Signup } from "./auth/index.js";
 import { BoringOSClientProvider } from "./providers/BoringOSClientProvider.js";
 import { BrandProvider } from "./branding/BrandProvider.js";
+import { ThemeProvider } from "./theme/index.js";
 import {
   DynamicPluginRoutes,
   pluginHost,
@@ -48,8 +49,9 @@ export function App() {
   return (
     <AuthProvider>
       <BoringOSClientProvider>
-        <BrandProvider>
-          <RuntimePluginsLoader />
+        <ThemeProvider>
+          <BrandProvider>
+            <RuntimePluginsLoader />
           <BrowserRouter>
             <Routes>
               {/* Public auth routes */}
@@ -151,6 +153,7 @@ export function App() {
             </Routes>
           </BrowserRouter>
         </BrandProvider>
+        </ThemeProvider>
       </BoringOSClientProvider>
     </AuthProvider>
   );

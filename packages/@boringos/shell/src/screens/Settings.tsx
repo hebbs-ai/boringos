@@ -11,6 +11,7 @@ import { pluginHost } from "../plugin-host/index.js";
 import { ScreenBody, ScreenHeader } from "./_shared.js";
 import { BrandingPanel } from "./Settings/BrandingPanel.js";
 import { BusinessProfilePanel } from "./Settings/BusinessProfilePanel.js";
+import { AppearancePanel } from "./Settings/AppearancePanel.js";
 import { AgentsPanel } from "./Settings/AgentsPanel.js";
 import { ManifestSection } from "./Settings/ManifestSection.js";
 import { ToolsPanel } from "./Settings/ToolsPanel.js";
@@ -31,6 +32,7 @@ export function Settings() {
   const tabs: Tab[] = [
     { id: "general", label: "General" },
     { id: "business-profile", label: "Business profile" },
+    { id: "appearance", label: "Appearance" },
     { id: "branding", label: "Branding" },
     ...(isAdmin
       ? [
@@ -88,6 +90,7 @@ export function Settings() {
           )}
 
           {active === "business-profile" && <BusinessProfilePanel />}
+          {active === "appearance" && <AppearancePanel />}
           {active === "branding" && <BrandingPanel />}
           {active === "agents" && <AgentsPanel />}
           {active === "tools" && <ToolsPanel />}

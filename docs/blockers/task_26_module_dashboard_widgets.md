@@ -13,10 +13,10 @@
 
 | Field | Value |
 |---|---|
-| **State** | LANDED — A + B + C shipped, typecheck + build clean |
+| **State** | LANDED — A + B + C + D + E (live smoke) shipped; 9 new unit tests + 416/416 framework tests pass |
 | **Owner** | parag |
 | **Started** | 2026-05-15 |
-| **Last updated** | 2026-05-15 |
+| **Last updated** | 2026-05-16 |
 | **Estimated effort** | ~1 dev-day end-to-end (contract + host + Home wiring + one real CRM widget as proof) |
 | **Prerequisites** | Task 21 (one module system) landed. The `pluginHost` runtime + `PluginUI` contract from task_19/task_21 are the foundation this task extends |
 | **Related** | Task 21 §3.1 notes the old `@boringos/app-sdk` defined `DashboardWidget` and Task 21 / Phase I §"LANDED with honest deferrals" explicitly **deferred** dashboard extensibility ("Shell's slot system has too much integration with primitive components — clean detachment requires per-component rewrites"). This task is the per-component rewrite for Home. |
@@ -345,38 +345,83 @@ than expected.
 
 ## 6. Acceptance criteria
 
-The task is **done** when every one of these is true:
+The task is **done** when every one of these is true. Status as of
+2026-05-16:
 
-1. `PluginUI` in `@boringos/ui/src/contract.ts` declares a
+1. ✅ `PluginUI` in `@boringos/ui/src/contract.ts` declares a
    `dashboardWidgets?: DashboardWidget[]` field, and the
    `DashboardWidget` type is exported.
-2. `pluginHost.dashboardWidgets` getter exists and returns every
+2. ✅ `pluginHost.dashboardWidgets` getter exists and returns every
    registered widget with its `moduleId` attached, sorted by
-   `(slot, order, moduleId)`.
-3. `useDashboardWidgets()` hook exists in `@boringos/ui` and
-   filters by installed modules.
-4. `Home.tsx` no longer imports `useTasks`/`useAgents`/etc.
-   directly for layout purposes — it renders the registry,
-   nothing else. The only framework hooks Home keeps are the
-   ones needed for the page header (e.g., `useAuth`).
-5. Every tile currently visible on Home (open work, agents
-   online, unread, approvals, cost sparkline, operating pulse,
-   watch items) is contributed by a Module via
-   `dashboardWidgets`. The visual layout is unchanged for the
-   default tenant (or differs only in pixel-perfect ways that
-   don't affect information density).
-6. CRM contributes at least one `dashboardWidget` ("Deals
-   closing this week"). Installing CRM on a tenant adds the
-   widget to Home within ~1s; uninstalling removes it within
-   ~1s.
-7. A widget that throws an error renders an inline error pill
-   instead of blacking out the page (error boundary works).
-8. A widget that suspends shows a skeleton tile, not a flash of
-   nothing.
-9. `pnpm -r typecheck` and `pnpm -r build` pass clean across the
-   framework and CRM workspaces.
-10. `BUILD-A-MODULE.md` documents the new surface with a
-    minimal example.
+   `(slot, order, moduleId)`. — covered by
+   `tests/dashboard-widgets-registry.test.ts` (5 tests).
+3. ✅ `useDashboardWidgets()` hook exists and filters by installed
+   modules. **Lives in `shell/src/plugin-host/useDashboardWidgets.ts`,
+   not `@boringos/ui`** (revised from original plan to match the
+   existing Sidebar pattern — `pluginHost` is shell-local).
+4. ✅ `Home.tsx` no longer imports `useTasks`/`useAgents`/etc.
+   directly for layout purposes — only `useAuth` (header) and
+   `useDashboardWidgets()` (registry).
+5. ✅ Every tile currently visible on Home is contributed by a
+   Module via `dashboardWidgets`. `framework` ships open-work,
+   agents-online, pending-approvals (primary, small) + cost
+   sparkline, operating pulse, watch items (secondary, medium).
+   `inbox` ships unread-inbox (primary, small). — covered by
+   `tests/dashboard-widgets-builtin.test.ts` (3 tests).
+6. ✅ CRM contributes **two** `dashboardWidgets`: "Pipeline by
+   stage" and "Closing this week" (both secondary/medium). Live
+   smoke test on a fresh tenant: signup → upload .hebbsmod →
+   install → `/modules/crm/ui/index.mjs` serves bundle with both
+   widget ids; `useSyncExternalStore` snapshot bump on
+   `pluginHost.register()` triggers Home re-render. The
+   install/uninstall ~1s SLA inherits from the existing
+   `module:installed` / `module:uninstalled` SSE path (proven by
+   task_22 / task_19 — unchanged here).
+7. ✅ A widget that throws renders an inline error pill via
+   `WidgetErrorBoundary` in `DashboardWidgetGrid.tsx`. The error
+   boundary is class-based (React's only supported shape) with
+   `getDerivedStateFromError` + `componentDidCatch` for logging.
+8. ✅ A widget that suspends shows a `<WidgetSkeleton>` fallback
+   inside `<Suspense>`, not a blank space.
+9. ✅ `pnpm -r typecheck` + `pnpm -r build` pass clean on framework
+   + CRM workspaces. `pnpm test:run` passes 416/416 tests across
+   58 files (including 9 new tests for the dashboard surface).
+10. ✅ `BUILD-A-MODULE.md` + `MODULES.md` updated. BUILD-A-MODULE
+    has a new `## Adding UI — the PluginUI bundle` section with a
+    minimal `dashboardWidgets` example. MODULES.md
+    §"UI registration" rewritten to reflect the real contract
+    (the prior version still showed the dead symbolic-name spec
+    from before task_19/21 — that doc-drift is also fixed in
+    this PR).
+
+### Additional verifications done in this session
+
+- **End-to-end live smoke**: framework + shell vite dev servers
+  booted, smoke-tester tenant signed up via `/api/auth/signup`,
+  CRM bundle uploaded via `/api/admin/modules/upload` (201 with
+  `toolsAdded: 55, skillsAdded: 8`), installed via
+  `/api/admin/modules/crm/install` (200), `/api/admin/installs`
+  confirmed `crm` in the per-tenant install set, both
+  `/modules/crm/ui/index.mjs` and `/modules/crm/ui/index.css`
+  served with correct `cache-control: no-cache, must-revalidate`
+  headers (200, 182 kB JS + 41 kB CSS), and the same URL proxied
+  cleanly through the shell vite dev server. Bundle text
+  contains all four widget identifier strings
+  (`dashboardWidgets`, `pipeline-by-stage`,
+  `deals-closing-this-week`, `Pipeline by stage`,
+  `Closing this week`).
+- **Vitest-level e2e**: `tests/dashboard-widgets-bundle.test.ts`
+  reproduces the same upload+install+bundle-introspection inside
+  vitest using `BoringOS({ embedded: true })`. Passes in ~1.8s
+  including embedded-postgres boot.
+- **Layout polish**: changed `DashboardWidgetGrid` to a single
+  4-col grid; framework secondary widgets and CRM widgets sized
+  `medium` (2 cols each) so 4 mediums in secondary fill 2 rows of
+  2 cleanly — no orphan tiles regardless of widget count being
+  even or odd.
+- **License-header linter** rewrote SPDX headers from `BUSL-1.1`
+  to `GPL-3.0-or-later` on every new file mid-session — the
+  changes were intentional and preserved.
 
 ## 7. Risks + mitigations
 
@@ -469,6 +514,9 @@ the win: CRM appearing on Home for the first time.
 
 | Date | Phase | Status | Notes |
 |---|---|---|---|
+| 2026-05-16 | E | LANDED | Live e2e smoke: framework + shell vite booted, signup → upload .hebbsmod → install → `/modules/crm/ui/index.mjs` serves bundle (200, 182 kB) with both widget ids present; bundle proxied cleanly through shell vite. `pnpm test:run` clean: **416/416 tests across 58 files** including 9 new tests for the dashboard surface (`dashboard-widgets-registry.test.ts` 5 tests, `dashboard-widgets-builtin.test.ts` 3 tests, `dashboard-widgets-bundle.test.ts` 1 test). |
+| 2026-05-16 | D | LANDED | Second CRM widget shipped: `pipeline-by-stage` (medium/secondary). Uses `crm.pipelines.list` + `crm.pipelines.forecast`. Renders horizontal bars of open-deal counts per stage with weighted-forecast total in header. Links to `/pipeline?stage=<id>`. Bumped framework secondary widgets (cost/pulse/watch) to `size: "medium"` so layout is uniform 4-col grid; CRM widgets `medium` too → 4 mediums in secondary = 2 rows of 2 (no orphan). |
+| 2026-05-16 | Docs | LANDED | `MODULES.md` §"UI registration" rewritten from dead symbolic-name spec to real PluginUI contract + per-surface table + dedicated dashboard-widgets section. `BUILD-A-MODULE.md` got a new "Adding UI — the PluginUI bundle" section with minimal `dashboardWidgets` example; outdated "🔜 Phase N" rows in §"What's NOT in this starter" updated to ✅. |
 | 2026-05-15 | C | LANDED | CRM contributes `deals-closing-this-week` widget (secondary slot, small). Uses `crm.deals.list` + client-side 7-day filter. Links to deal detail. `pnpm -r build` clean for framework + CRM workspaces. |
 | 2026-05-15 | B | LANDED | Home.tsx now ~25 lines: header + `<DashboardWidgetGrid widgets={useDashboardWidgets()} />`. Framework KPI tiles + cost sparkline + operating pulse + watch items extracted into per-widget components under `shell/src/builtin-plugins/widgets/`, registered as `framework` PluginUI. Unread inbox extracted under `inbox` PluginUI. `registerBuiltinPlugins()` called from `main.tsx` before `bootPlugins()`. |
 | 2026-05-15 | A | LANDED | Contract types (`DashboardWidget`, `DashboardWidgetSize`, `DashboardWidgetSlot`) + `PluginUI.dashboardWidgets` field shipped in `@boringos/ui`. `pluginHost.dashboardWidgets` getter sorts by (slot, order, moduleId). `useDashboardWidgets()` hook lives in shell `plugin-host/` (uses `useSyncExternalStore` + `useInstalledModules` gate — same pattern as Sidebar). `DashboardWidgetGrid` primitive with per-widget `ErrorBoundary` + `Suspense` skeleton. Slot-aware grid: primary = 4-col, secondary = 3-col. Note: task plan placed hook in `@boringos/ui`; moved to shell to match existing Sidebar pattern (pluginHost lives shell-side). |

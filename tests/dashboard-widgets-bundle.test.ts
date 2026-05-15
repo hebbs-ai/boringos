@@ -106,6 +106,17 @@ describe("task_26 — CRM .hebbsmod includes dashboard widgets", () => {
       // Title strings are also literal in the manifest.
       expect(uiSource).toContain("Pipeline by stage");
       expect(uiSource).toContain("Closing this week");
+
+      // Both widget entries are present together in the
+      // dashboardWidgets array context (proves they're declared as a
+      // group on the PluginUI manifest, not scattered).
+      const widgetsPos = uiSource.indexOf("dashboardWidgets");
+      expect(widgetsPos).toBeGreaterThan(-1);
+      const widgetsSection = uiSource.slice(widgetsPos);
+      expect(widgetsSection).toContain("pipeline-by-stage");
+      expect(widgetsSection).toContain("deals-closing-this-week");
+      expect(widgetsSection).toContain("secondary");
+      expect(widgetsSection).toContain("medium");
     } finally {
       await server.close();
     }

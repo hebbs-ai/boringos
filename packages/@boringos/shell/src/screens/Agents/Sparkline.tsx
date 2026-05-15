@@ -23,11 +23,10 @@ export function Sparkline({
           <div
             key={i}
             title={`${v} run${v === 1 ? "" : "s"}`}
-            className="w-1 flex-shrink-0 rounded-sm bg-accent-tint"
-            style={{
-              height: `${Math.max(4, pct)}%`,
-              backgroundColor: v > 0 ? "rgb(96 165 250)" : "rgb(226 232 240)",
-            }}
+            className={`w-1 flex-shrink-0 rounded-sm ${
+              v > 0 ? "bg-accent" : "bg-border"
+            }`}
+            style={{ height: `${Math.max(4, pct)}%` }}
           />
         );
       })}

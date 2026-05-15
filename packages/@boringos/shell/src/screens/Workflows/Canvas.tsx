@@ -296,7 +296,7 @@ function CanvasInner({
   const fitViewOptions = useMemo(() => ({ padding: 0.18, maxZoom: 1.2 }), []);
 
   return (
-    <div ref={wrapRef} tabIndex={-1} className="flex-1 outline-none relative bg-[#fafafa]">
+    <div ref={wrapRef} tabIndex={-1} className="flex-1 outline-none relative bg-bg-warm">
       <ReactFlow
         nodes={rfNodes}
         edges={rfEdges}

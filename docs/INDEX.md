@@ -35,8 +35,9 @@ want them.
 
 ## Architecture
 
-- [`docs/new_thesis.md`](new_thesis.md) — the thesis
-  (Skills + Tools + Modules).
+- [`docs/thesis.md`](thesis.md) — **the Hebbs thesis** (Shell +
+  Modules + framework + how we sell). Source of truth for all docs
+  and marketing copy — read before writing any new doc.
 - [`docs/overview.md`](overview.md) — system overview.
 - [`docs/coordination.md`](coordination.md) — how agents coordinate
   via tasks + comments + the hierarchy.

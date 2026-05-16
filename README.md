@@ -11,6 +11,12 @@ subprocesses (Claude Code, Codex, Gemini CLI, Ollama, …), and
 report back. The framework never calls LLM APIs directly; CLIs
 are the agents, BoringOS is the orchestrator.
 
+> **The thesis in one read:** [`docs/thesis.md`](docs/thesis.md) —
+> what Hebbs is, what ships on day zero (the Shell), what you
+> install on top (Modules), how the framework works, and how we
+> sell. Read this first, and use it as the source of truth when
+> writing any new doc or marketing copy.
+
 ---
 
 ## Product tour

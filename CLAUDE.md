@@ -62,7 +62,9 @@ Behavioral teaching goes in `SKILL.md` — not into hand-edited copies of `proto
 
 ## Architecture — Skills, Tools, Modules
 
-Three primitives — see [`docs/new_thesis.md`](docs/new_thesis.md), [`BUILD-A-MODULE.md`](BUILD-A-MODULE.md), [`MODULES.md`](MODULES.md), [`TOOLS.md`](TOOLS.md), [`SKILLS.md`](SKILLS.md).
+Three primitives — see [`docs/thesis.md`](docs/thesis.md) (the canonical Hebbs thesis; read first), [`BUILD-A-MODULE.md`](BUILD-A-MODULE.md), [`MODULES.md`](MODULES.md), [`TOOLS.md`](TOOLS.md), [`SKILLS.md`](SKILLS.md).
+
+> **Writing docs?** [`docs/thesis.md`](docs/thesis.md) is the single source of truth for what Hebbs is and how it's positioned (Shell + Modules + framework primitives + how we sell). Re-read it before drafting any new doc, README section, or marketing copy, and update it deliberately if the story changes.
 
 | Primitive | What it is |
 |---|---|

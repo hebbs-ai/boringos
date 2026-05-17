@@ -4,11 +4,13 @@
 // Global pause toggle + per-agent controls: pause/resume, change model, view runs.
 
 import { useState } from "react";
+import { toast } from "sonner";
 
 import { useAuth } from "../../auth/AuthProvider.js";
 import { useAgents, useRuntimes, useSettings, useCosts } from "@boringos/ui";
 import { Switch } from "../../components/ui/switch.js";
 import { LoadingState, EmptyState } from "../_shared.js";
+import { ConfirmModelChangeDialog } from "./ConfirmModelChangeDialog.js";
 
 // Mirrors `claudeRuntime.models` in @boringos/runtime. Picking any of
 // these on an agent sets `agents.model`; the engine then routes to the
@@ -20,6 +22,19 @@ const CLAUDE_MODELS: Array<{ id: string; label: string }> = [
   { id: "claude-opus-4-6", label: "Claude Opus 4.6" },
 ];
 
+function modelLabel(id: string | null | undefined): string {
+  if (!id) return "Runtime default";
+  const known = CLAUDE_MODELS.find((m) => m.id === id);
+  return known?.label ?? id;
+}
+
+interface PendingModelChange {
+  agentId: string;
+  agentName: string;
+  newModel: string; // empty string means "Runtime default"
+  previousModel: string | null;
+}
+
 export function AgentsPanel() {
   const { user } = useAuth();
   const { agents, isLoading: agentsLoading, updateAgent } = useAgents();
@@ -27,6 +42,7 @@ export function AgentsPanel() {
   const { settings, updateSettings } = useSettings();
   const { costs } = useCosts();
   const [error, setError] = useState<string | null>(null);
+  const [pendingModelChange, setPendingModelChange] = useState<PendingModelChange | null>(null);
 
   if (!user?.role || user.role !== "admin") {
     return (
@@ -70,12 +86,54 @@ export function AgentsPanel() {
     }
   };
 
-  const handleModelChange = async (agentId: string, model: string) => {
+  // Two-phase model swap: opening this dialog is a no-op until the
+  // operator confirms. Confirming calls updateAgent and surfaces the
+  // server's `sessionInvalidation` payload through a sonner toast so
+  // the operator knows whether any in-flight runs are still on the
+  // old model.
+  const handleModelChange = (agentId: string, newModel: string) => {
+    const agent = agents?.find((a) => a.id === agentId);
+    if (!agent) return;
+    const previousModel = (agent as { model?: string | null }).model ?? null;
+    if ((newModel || null) === (previousModel || null)) return; // no-op
+    setError(null);
+    setPendingModelChange({
+      agentId,
+      agentName: agent.name,
+      newModel,
+      previousModel,
+    });
+  };
+
+  const commitModelChange = async () => {
+    if (!pendingModelChange) return;
+    const { agentId, newModel } = pendingModelChange;
     try {
-      setError(null);
-      await updateAgent({ agentId, data: { model: model || null } });
+      const updated = (await updateAgent({
+        agentId,
+        data: { model: newModel || null },
+      })) as { sessionInvalidation?: { tasksCleared: number; tasksDeferred: number } };
+      const inv = updated?.sessionInvalidation;
+      const niceLabel = modelLabel(newModel || null);
+      if (inv && inv.tasksDeferred > 0) {
+        toast.info(
+          `Model updated. ${inv.tasksDeferred} run${inv.tasksDeferred === 1 ? "" : "s"} ` +
+            `currently in progress will finish on the old model; subsequent runs use ${niceLabel}.`,
+        );
+      } else if (inv && inv.tasksCleared > 0) {
+        toast.success(
+          `Model updated. ${inv.tasksCleared} task session${inv.tasksCleared === 1 ? "" : "s"} ` +
+            `reset; next run uses ${niceLabel}.`,
+        );
+      } else {
+        toast.success(`Model updated. Next run uses ${niceLabel}.`);
+      }
+      setPendingModelChange(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to update model");
+      const msg = e instanceof Error ? e.message : "Failed to update model";
+      setError(msg);
+      toast.error(msg);
+      setPendingModelChange(null);
     }
   };
 
@@ -194,6 +252,20 @@ export function AgentsPanel() {
           </table>
         </div>
       </div>
+
+      {pendingModelChange && (
+        <ConfirmModelChangeDialog
+          agentName={pendingModelChange.agentName}
+          newModelLabel={modelLabel(pendingModelChange.newModel || null)}
+          previousModelLabel={
+            pendingModelChange.previousModel
+              ? modelLabel(pendingModelChange.previousModel)
+              : null
+          }
+          onConfirm={commitModelChange}
+          onCancel={() => setPendingModelChange(null)}
+        />
+      )}
     </div>
   );
 }

@@ -295,12 +295,21 @@ export interface BoringOSClient {
       status?: string;
       runtimeId?: string | null;
       fallbackRuntimeId?: string | null;
+      /**
+       * Per-agent model override (e.g. `claude-sonnet-4-6`). When set,
+       * takes priority over the resolved runtime row's model at run
+       * time. Setting / changing this server-side also clears
+       * `tasks.session_id` for active tasks so the next wake starts
+       * a fresh session under the new model. The PATCH response
+       * carries `sessionInvalidation: { tasksCleared, tasksDeferred }`.
+       */
+      model?: string | null;
       reportsTo?: string | null;
       routingTags?: string[];
       permissions?: Record<string, unknown>;
       budgetMonthlyCents?: number;
     },
-  ): Promise<Agent>;
+  ): Promise<Agent & { sessionInvalidation?: { tasksCleared: number; tasksDeferred: number } }>;
   patchAgentRoutingTags(
     agentId: string,
     data: { add?: string[]; remove?: string[]; set?: string[] },

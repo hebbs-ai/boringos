@@ -1447,12 +1447,15 @@ export class BoringOS {
     });
     forwardSyncTicker.start();
 
-    // Wake the replier on every `triage.classified` event. The
-    // replier reads `metadata.triage.label` + headers + body and
-    // decides for itself whether to draft (per its skill rules:
-    // skip noise/fyi, skip newsletters, skip mail the user sent).
-    // No taxonomy/score gate here — the legacy gate broke every time
-    // the triage module's enum drifted.
+    // Wake the replier on `triage.classified` events that the
+    // triage agent labelled `urgent` or `important`. Other labels
+    // (noise / fyi) skip both the task insert and the wake — paying
+    // for one Claude run on noise to discover "this is noise, skip"
+    // is the dominant cost in the triage path and the replier's
+    // own skill rules already say "do not draft for noise/fyi".
+    // The replier's prompt-side skip rules stay in place as a
+    // belt-and-braces fallback for anything that bypasses this gate.
+    const REPLIER_WAKE_LABELS = new Set(["urgent", "important"]);
     eventBus.on("triage.classified", async (event) => {
       const data = event.data ?? {};
       const itemId = data.itemId as string | undefined;
@@ -1480,6 +1483,14 @@ export class BoringOS {
       const row = rows[0];
       if (!row) return;
       const meta = (row.metadata ?? {}) as Record<string, unknown>;
+      // Label gate. `metadata.triage` is written by the
+      // `triage.classify` tool before this event fires, so it
+      // should be present; missing label = treat as noise (don't
+      // wake) since triage clearly didn't reach a decision worth
+      // replying to.
+      const triageMeta = (meta.triage ?? {}) as { label?: string };
+      const label = (triageMeta.label ?? "").toLowerCase();
+      if (!REPLIER_WAKE_LABELS.has(label)) return;
       const emailMeta = (meta.email ?? {}) as { headers?: import("@boringos/connector-google").EmailHeaders; automated?: import("./automated-mail.js").AutomatedClassification };
       const headers = emailMeta.headers ?? {
         listUnsubscribe: null,

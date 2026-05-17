@@ -32,6 +32,55 @@ const NOREPLY_LOCAL_PART_RE =
   /(?:^|[._-])(?:no[-._]?reply|donotreply|do[-._]?not[-._]?reply|notifications?|alerts?|mailer[-._]?daemon|postmaster|bounces?|noreplies?)(?:[._-]|@|$)/i;
 
 /**
+ * Domains that exclusively send transactional / system mail. Match
+ * the *full* domain or any subdomain (e.g. `notifications.github.com`
+ * matches `github.com`). Keep the list narrow — every entry is a
+ * commitment that mail from this domain is never something the user
+ * needs to draft a reply to. SaaS app notifications, payment
+ * receipts, OAuth verification mail, calendar invites from system
+ * accounts are the target. When in doubt, leave a domain off and
+ * let the local-part / header signals catch it.
+ */
+const TRANSACTIONAL_VENDOR_DOMAINS: readonly string[] = [
+  "stripe.com",
+  "github.com",
+  "linear.app",
+  "vercel.com",
+  "calendly.com",
+  "zoom.us",
+  "loom.com",
+  "notion.so",
+  "figma.com",
+  "atlassian.com",
+  "atlassian.net",
+  "slack.com",
+  "intercom.io",
+  "intercom.com",
+  "google.com",          // accounts.google.com / no-reply@accounts.google.com
+  "googleapis.com",
+  "accounts.google.com",
+  "amazon.com",
+  "amazonaws.com",
+  "paypal.com",
+  "docusign.net",
+  "hellosign.com",
+  "dropboxsign.com",
+  "twilio.com",
+  "sendgrid.net",
+  "mailgun.org",
+  "mailchimp.com",        // their own service mail; marketing they send for their customers carries List-Unsubscribe
+] as const;
+
+/**
+ * Subjects that are almost always transactional and never warrant a
+ * generated draft reply. Designed to be tight: a false positive
+ * silences a real human reply, which is far worse than a false
+ * negative (which costs one extra cheap LLM call).
+ */
+const TRANSACTIONAL_SUBJECT_RE =
+  /^(?:re:\s*)?(?:fwd?:\s*)?(?:your\s+)?(?:receipt(?:\s+for|\b)|order\s+confirmation|payment\s+(?:received|confirmation)|invoice\s|verification\s+code|verify\s+your\s+(?:email|address)|sign[\s-]?in\s+(?:code|attempt)|password\s+reset|new\s+sign[\s-]?in|security\s+alert|action\s+required:?\s+verify)/i;
+
+/**
  * Pull the address out of an RFC 5322 From / Reply-To value, e.g.
  * '"Acme Inc" <noreply@acme.com>' → 'noreply@acme.com'. Returns
  * lowercased, trimmed, or null when no `@` is present.
@@ -46,6 +95,20 @@ export function extractEmailAddress(raw: string | null | undefined): string | nu
 function isNoReplyLocalPart(address: string): boolean {
   const local = address.split("@", 1)[0];
   return NOREPLY_LOCAL_PART_RE.test(local);
+}
+
+/**
+ * True when `address`'s domain (or any parent of it) is in the
+ * vendor allowlist. Falls back to false for unknown senders.
+ */
+function isTransactionalVendorDomain(address: string): boolean {
+  const at = address.lastIndexOf("@");
+  if (at < 0) return false;
+  const domain = address.slice(at + 1);
+  for (const vendor of TRANSACTIONAL_VENDOR_DOMAINS) {
+    if (domain === vendor || domain.endsWith(`.${vendor}`)) return true;
+  }
+  return false;
 }
 
 /**
@@ -72,16 +135,28 @@ function norm(value: string | null): string | null {
  *   3. `List-Unsubscribe` or `List-Id` present → newsletter
  *   4. From / Reply-To address local part matches noreply / notifications /
  *      mailer-daemon / postmaster / bounces → automated
+ *   5. From domain is in `TRANSACTIONAL_VENDOR_DOMAINS` (Stripe,
+ *      GitHub, Linear, …) → automated. Catches vendor mail that
+ *      doesn't bother setting `Auto-Submitted` and uses a normal
+ *      `noreply`-shaped address but isn't covered by the local-part
+ *      regex (e.g. `notifications-noreply@github.com`).
+ *   6. Subject matches `TRANSACTIONAL_SUBJECT_RE` → automated.
+ *      Catches receipts / verification codes from one-off domains
+ *      that aren't on the vendor list.
  *
  * The first matching signal wins for `kind`; the rest are still
  * recorded in `reasons` so the UI can surface "filtered because:
  * List-Unsubscribe + noreply@".
+ *
+ * `subject` is optional so existing callers keep working; the
+ * subject-regex signal is skipped when it's omitted.
  */
 export function classifyAutomatedMail(input: {
   headers: EmailHeaders;
   from: string | null;
+  subject?: string | null;
 }): AutomatedClassification {
-  const { headers, from } = input;
+  const { headers, from, subject } = input;
   const reasons: string[] = [];
   let kind: AutomatedKind | null = null;
 
@@ -123,6 +198,16 @@ export function classifyAutomatedMail(input: {
   if (replyToAddress && isNoReplyLocalPart(replyToAddress)) {
     setKind("automated");
     reasons.push(`no-reply Reply-To: ${replyToAddress}`);
+  }
+
+  if (fromAddress && isTransactionalVendorDomain(fromAddress)) {
+    setKind("automated");
+    reasons.push(`vendor domain: ${fromAddress.split("@")[1] ?? fromAddress}`);
+  }
+
+  if (subject && TRANSACTIONAL_SUBJECT_RE.test(subject.trim())) {
+    setKind("automated");
+    reasons.push(`transactional subject: ${subject.trim().slice(0, 60)}`);
   }
 
   return {

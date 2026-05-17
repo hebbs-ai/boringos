@@ -176,4 +176,85 @@ describe("classifyAutomatedMail", () => {
     expect(result.kind).toBe("automated");
     expect(result.reasons.length).toBeGreaterThanOrEqual(3);
   });
+
+  // ─── Vendor-domain allowlist (issue #18) ───────────────────────
+  it.each([
+    ["receipts@stripe.com", "stripe.com"],
+    ["notifications@github.com", "github.com"],
+    ["weird-prefix-noreply@notifications.github.com", "github.com"],
+    ["alerts@linear.app", "linear.app"],
+    ["receipts@vercel.com", "vercel.com"],
+    ["invites@calendly.com", "calendly.com"],
+  ])("flags %s as automated (transactional vendor domain)", (from, _vendor) => {
+    const result = classifyAutomatedMail({
+      headers: emptyHeaders(),
+      from,
+    });
+    expect(result.automated).toBe(true);
+    expect(result.kind).toBe("automated");
+    // Either the vendor-domain signal or the local-part signal
+    // can fire for these — both are valid; we just want at least
+    // one reason that mentions the domain.
+    const joined = result.reasons.join(" ");
+    expect(joined).toMatch(/stripe\.com|github\.com|linear\.app|vercel\.com|calendly\.com|no-reply/);
+  });
+
+  it("does not flag mail from non-allowlisted domains by domain alone", () => {
+    const result = classifyAutomatedMail({
+      headers: emptyHeaders(),
+      from: "alex@stripemate.com", // similar TLD, NOT stripe.com
+    });
+    expect(result.automated).toBe(false);
+  });
+
+  // ─── Transactional subject regex (issue #18) ───────────────────
+  it.each([
+    "Receipt for your order",
+    "Order confirmation",
+    "Payment received",
+    "Invoice 12345",
+    "Your verification code is 123456",
+    "Sign-in code",
+    "Password reset",
+    "New sign-in to your account",
+    "Action required: verify your email",
+    "Re: Receipt for last month",
+    "Fwd: Your invoice from last week",
+  ])("flags %s as automated (transactional subject)", (subject) => {
+    const result = classifyAutomatedMail({
+      headers: emptyHeaders(),
+      from: "ops@unknown-vendor.example",
+      subject,
+    });
+    expect(result.automated).toBe(true);
+    expect(result.kind).toBe("automated");
+    expect(result.reasons.join(" ")).toMatch(/transactional subject/);
+  });
+
+  it("does not flag non-transactional subjects from unknown senders", () => {
+    for (const subject of [
+      "Hey can we chat tomorrow?",
+      "Thanks for the call",
+      "Following up on our conversation",
+      "Re: project status",
+    ]) {
+      const result = classifyAutomatedMail({
+        headers: emptyHeaders(),
+        from: "alex@example.com",
+        subject,
+      });
+      expect(result.automated, `subject=${subject}`).toBe(false);
+    }
+  });
+
+  it("works without a subject (back-compat with older callers)", () => {
+    // Old callers passed only { headers, from }; the function must
+    // still classify correctly with subject undefined.
+    const result = classifyAutomatedMail({
+      headers: emptyHeaders({ listUnsubscribe: "<...>" }),
+      from: "weekly@example.com",
+    });
+    expect(result.automated).toBe(true);
+    expect(result.kind).toBe("newsletter");
+  });
 });

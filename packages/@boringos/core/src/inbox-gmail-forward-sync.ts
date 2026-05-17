@@ -173,7 +173,11 @@ export function buildIngestMetadata(msg: GmailMessage, opts: { now?: Date } = {}
   automated: AutomatedClassification;
 } {
   const headers = msg.headers ?? emptyHeaders();
-  const automated = classifyAutomatedMail({ headers, from: msg.from ?? null });
+  const automated = classifyAutomatedMail({
+    headers,
+    from: msg.from ?? null,
+    subject: msg.subject ?? null,
+  });
   const metadata: Record<string, unknown> = {
     email: { headers, automated },
   };
@@ -295,7 +299,17 @@ export function createInboxGmailForwardSyncTicker(
         // First run: catch the past hour. Subsequent runs: only new
         // messages since the last successful tick.
         const after = cursor ?? nowSeconds - FIRST_RUN_LOOKBACK_SECONDS;
-        const query = `after:${after} -in:chats`;
+        // Restrict to Primary inbox so we don't ingest every
+        // Promotions / Social / Updates message and pay for an LLM
+        // triage call to discover "this was a Gmail-categorised
+        // newsletter". `in:inbox` keeps Gmail's own automated
+        // sorting, and the explicit `-category:*` exclusions cover
+        // accounts where users drag mail back into Primary by hand.
+        // `-in:chats` continues to exclude Hangouts/Chat threads.
+        const query =
+          `after:${after} in:inbox` +
+          ` -category:promotions -category:social -category:updates -category:forums` +
+          ` -in:chats`;
 
         const result = await runGmail(db, row, "list_emails", {
           query,

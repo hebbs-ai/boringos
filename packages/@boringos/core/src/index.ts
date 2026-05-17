@@ -45,6 +45,13 @@ export {
   type AutomatedClassification,
   type AutomatedKind,
 } from "./automated-mail.js";
+export {
+  translate as translateCrmLegacyPath,
+  createCrmShimRoutes,
+  NoLegacyRouteError,
+  type Translation as CrmLegacyTranslation,
+  type CrmShimDeps,
+} from "./crm-shim-routes.js";
 export { buildIngestMetadata } from "./inbox-gmail-forward-sync.js";
 export { createRealtimeBus } from "./realtime.js";
 export type { RealtimeBus, RealtimeEvent, EventType } from "./realtime.js";

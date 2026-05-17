@@ -35,6 +35,7 @@ import type {
 } from "./types.js";
 import { runWorkflow } from "./run-workflow.js";
 import { createToolRoutes } from "./tool-routes.js";
+import { createCrmShimRoutes } from "./crm-shim-routes.js";
 import { createModuleAdminRoutes } from "./module-admin-routes.js";
 import { createModulePackageRoutes } from "./module-package-routes.js";
 import { createModuleUiRoutes } from "./module-ui-routes.js";
@@ -883,6 +884,19 @@ export class BoringOS {
         installManager: installManagerEarly,
       });
       app.route("/api/tools", toolsApp);
+
+      // Compatibility shim for legacy CRM REST callers
+      // (`/api/crm/*`). Translates v1 paths to v2 tool dispatches
+      // so CRM bundle slots that haven't been migrated to the
+      // tool API still work. See `crm-shim-routes.ts` for the
+      // mapping table; intentionally narrow surface so missing
+      // routes return 404 with `no_legacy_route`.
+      const crmShimApp = createCrmShimRoutes({
+        db: dbConn.db,
+        registry: toolRegistry,
+        jwtSecret,
+      });
+      app.route("/api/crm", crmShimApp);
 
       const moduleAdminApp = createModuleAdminRoutes({
         db: dbConn.db,

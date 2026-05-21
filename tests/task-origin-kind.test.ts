@@ -97,3 +97,94 @@ describe("RC4 — taskOriginKind threading", () => {
     expect(undefResult ?? "").not.toContain("MARKER_BODY");
   });
 });
+
+describe("RC1 — replier workflow + skill targeting", () => {
+  it("inbox-replier workflow triggers on triage.classified with noise/fyi skip conditions", async () => {
+    // The bug: workflow trigger is "inbox.item_created", which
+    // fires concurrently with triage. Fix: trigger on the event
+    // triage emits AFTER classifying, then skip noise/fyi via
+    // condition blocks so the LLM only runs for actionable mail.
+    const { buildReplierWorkflowBlocks } = await import(
+      "../packages/@boringos/core/src/modules/inbox-replier.js"
+    );
+
+    const { blocks, edges } = buildReplierWorkflowBlocks("agent-id");
+
+    const trigger = blocks.find((b) => b.type === "trigger");
+    expect(trigger?.config?.eventType).toBe("triage.classified");
+
+    // Two condition blocks present, skipping noise and fyi
+    const conditions = blocks.filter((b) => b.type === "condition");
+    expect(conditions.length).toBe(2);
+    const values = conditions
+      .map((c) => (c.config as { value?: string }).value)
+      .sort();
+    expect(values).toEqual(["fyi", "noise"]);
+    for (const c of conditions) {
+      const cfg = c.config as {
+        operator?: string;
+        field?: string;
+      };
+      expect(cfg.operator).toBe("not_equals");
+      expect(cfg.field).toContain("trigger.label");
+    }
+
+    // The task creation block should come only on the true edge
+    // of the second condition — and set originKind for the replier.
+    const taskBlock = blocks.find((b) => b.type === "tool");
+    expect(taskBlock?.tool).toBe("framework.tasks.create");
+    const inputs = (taskBlock?.inputs ?? {}) as { originKind?: string; description?: string };
+    expect(inputs.originKind).toBe("inbox.draft_reply");
+    expect(inputs.description).toContain("triage-label");
+
+    // Edges: trigger → cond1 → cond2 → task (on true handle).
+    expect(edges.length).toBe(3);
+    const triggerEdge = edges.find(
+      (e) => e.sourceBlockId === trigger?.id,
+    );
+    expect(triggerEdge).toBeDefined();
+    const taskEdge = edges.find(
+      (e) => e.targetBlockId === taskBlock?.id,
+    );
+    expect(taskEdge?.sourceHandle).toBe("true");
+  });
+
+  it("inbox-replier skill appliesTo matches taskOriginKind, not agentRole", async () => {
+    const { createInboxReplierModule } = await import("@boringos/core");
+    const mod = createInboxReplierModule({ db: null as never });
+    const skill = mod.skills?.[0];
+    if (!skill?.appliesTo) {
+      throw new Error("inbox-replier module missing skill.appliesTo");
+    }
+
+    // Matches when taskOriginKind is inbox.draft_reply
+    expect(
+      skill.appliesTo({
+        tenantId: "t",
+        agentId: "a",
+        agentRole: "operations",
+        taskOriginKind: "inbox.draft_reply",
+      }),
+    ).toBe(true);
+
+    // Does NOT match when the role is "operations" but the originKind
+    // is something else (e.g. a triage task, which the broken predicate
+    // used to match).
+    expect(
+      skill.appliesTo({
+        tenantId: "t",
+        agentId: "a",
+        agentRole: "operations",
+        taskOriginKind: "inbox.item_created",
+      }),
+    ).toBe(false);
+    expect(
+      skill.appliesTo({
+        tenantId: "t",
+        agentId: "a",
+        agentRole: "operations",
+        taskOriginKind: undefined,
+      }),
+    ).toBe(false);
+  });
+});

@@ -241,7 +241,7 @@ describe("framework.inbox.update emits triage.classified", () => {
   );
 
   it(
-    "wakes the replier on every triage.classified event (no taxonomy / score gate)",
+    "wakes the replier ONLY for non-noise/fyi triage.classified events (RC1 workflow gate)",
     async () => {
       const { BoringOS, createFrameworkModule } = await import("@boringos/core");
       const { signCallbackToken } = await import("@boringos/agent");
@@ -311,6 +311,27 @@ describe("framework.inbox.update emits triage.classified", () => {
           .insert(agentRuns)
           .values({ id: runId, tenantId, agentId: triageAgentId, status: "running" })
           .onConflictDoNothing();
+
+        // RC1: the replier wake path is now the inbox-replier
+        // workflow, which triggers on `triage.classified`. The
+        // module's onInstall would seed this row in production —
+        // we insert it directly so the test doesn't depend on the
+        // full module install pipeline.
+        const { workflows: workflowsTable } = await import("@boringos/db");
+        const { buildReplierWorkflowBlocks } = await import(
+          "../packages/@boringos/core/src/modules/inbox-replier.js"
+        );
+        const { blocks: replierBlocks, edges: replierEdges } =
+          buildReplierWorkflowBlocks(replierAgentId);
+        await db.insert(workflowsTable).values({
+          id: generateId(),
+          tenantId,
+          name: "Draft generic reply for incoming items",
+          type: "system",
+          status: "active",
+          blocks: replierBlocks,
+          edges: replierEdges,
+        });
 
         // Pause both agents globally so we don't actually spawn the
         // CLI subprocess when the engine queues a wake. This test
@@ -384,14 +405,14 @@ describe("framework.inbox.update emits triage.classified", () => {
         // alone covers.
         const flush = () => new Promise((r) => setTimeout(r, 100));
 
-        // The framework no longer pre-filters. Every classified item
-        // — noise, fyi, important, urgent, header-prefilter or
-        // agent-classified — wakes the replier. Skipping is the
-        // replier's job (it reads metadata.triage.label + headers and
-        // decides). Each case below should produce exactly one
-        // replier task.
+        // RC1: noise/fyi are filtered at the workflow condition
+        // blocks before the task block runs. The replier only wakes
+        // for urgent/important items. This is the "gate at the
+        // workflow trigger" model — replaces the previous "no gate,
+        // replier decides" listener path.
 
-        // Case 1 — noise label (was: newsletter under v1 vocab).
+        // Case 1 — noise label: condition `label != noise` fails,
+        // workflow stops, NO replier task created.
         const item1 = await seedItem();
         await writeTriage(item1, {
           label: "noise",
@@ -400,9 +421,10 @@ describe("framework.inbox.update emits triage.classified", () => {
           source: "agent",
         });
         await flush();
-        expect(await replierTaskCount(item1)).toBe(1);
+        expect(await replierTaskCount(item1)).toBe(0);
 
-        // Case 2 — fyi label.
+        // Case 2 — fyi label: condition `label != fyi` fails,
+        // workflow stops, NO replier task created.
         const item2 = await seedItem();
         await writeTriage(item2, {
           label: "fyi",
@@ -411,11 +433,10 @@ describe("framework.inbox.update emits triage.classified", () => {
           source: "agent",
         });
         await flush();
-        expect(await replierTaskCount(item2)).toBe(1);
+        expect(await replierTaskCount(item2)).toBe(0);
 
-        // Case 3 — header-prefilter source: still wakes the replier;
-        // the replier reads `prefilter: automated` from headers and
-        // skips drafting itself.
+        // Case 3 — header-prefilter source classified as noise:
+        // also filtered by the workflow condition.
         const item3 = await seedItem();
         await writeTriage(item3, {
           label: "noise",
@@ -424,9 +445,10 @@ describe("framework.inbox.update emits triage.classified", () => {
           source: "header-prefilter",
         });
         await flush();
-        expect(await replierTaskCount(item3)).toBe(1);
+        expect(await replierTaskCount(item3)).toBe(0);
 
-        // Case 4 — important: replier wakes and would draft a reply.
+        // Case 4 — important: both conditions pass, task block
+        // fires, replier task created.
         const item4 = await seedItem();
         await writeTriage(item4, {
           label: "important",

@@ -1450,13 +1450,23 @@ export class BoringOS {
     });
     forwardSyncTicker.start();
 
-    // Wake the replier on every `triage.classified` event. The
-    // replier reads `metadata.triage.label` + headers + body and
-    // decides for itself whether to draft (per its skill rules:
-    // skip noise/fyi, skip newsletters, skip mail the user sent).
-    // No taxonomy/score gate here — the legacy gate broke every time
-    // the triage module's enum drifted.
+    // @deprecated since RC1 (issue #33). The replier is now woken by
+    // the `inbox-replier` Module's workflow, which triggers on
+    // `triage.classified` and filters noise/fyi via condition
+    // blocks before creating the task with the correct
+    // `originKind: "inbox.draft_reply"`. This hand-coded listener
+    // duplicated that wake path AND created replier tasks with the
+    // wrong `originKind: "inbox.item_created"` (inherited from the
+    // generic `createTriageTask` helper), which broke the post-RC2
+    // skill-targeting predicates.
+    //
+    // Kept here behind an early return for backward-compatibility +
+    // documentation of the historical wake path. Safe to delete in a
+    // follow-up PR once we're confident no external tooling depends
+    // on this listener being registered.
     eventBus.on("triage.classified", async (event) => {
+      return; // disabled — workflow path is canonical (Option A)
+      // eslint-disable-next-line no-unreachable
       const data = event.data ?? {};
       const itemId = data.itemId as string | undefined;
       if (!itemId) return;

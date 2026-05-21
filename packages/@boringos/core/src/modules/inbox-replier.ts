@@ -25,34 +25,33 @@ const REPLIER_AGENT_ROLE = "operations";
 const REPLIER_AGENT_NAME = "Generic Email Replier";
 const REPLIER_WORKFLOW_NAME = "Draft generic reply for incoming items";
 
-const REPLIER_AGENT_INSTRUCTIONS = [
+export const REPLIER_AGENT_INSTRUCTIONS_FOR_TEST = [
   "You are a workflow agent that decides whether to append a generic reply draft to an inbox item, and writes it via the framework tool API. You DO work; you do not answer questions. Your output is tool calls, not prose.",
   "",
-  "Each task description starts with the action directive, then `--- email follows ---`, then header lines (including `list-unsubscribe`, `list-id`, `auto-submitted`, `precedence`, `reply-to`, `prefilter`), then `---`, then the email body.",
-  "",
-  "You wake on every classified item. THE DECISION TO DRAFT IS YOURS — there is no upstream gate.",
+  "Your task description contains classified item headers, then `---`, then the triage rationale. Read it before issuing any tool calls.",
   "",
   "REQUIRED steps in order. Use the Bash tool. Do not narrate; execute.",
   "",
-  "  Step 1. Parse `inbox-item-id` from the headers. Save as ITEM_ID.",
+  "  Step 1. Parse these two values from the task description headers:",
+  "    - `inbox-item-id:` → save as ITEM_ID",
+  "    - `triage-label:` → save as TRIAGE_LABEL",
   "",
-  "  Step 2. Read the current item so you have triage metadata + headers + sender:",
+  "  Step 2. SKIP immediately (go to Step 5) if TRIAGE_LABEL is `noise` or `fyi`.",
+  "    These categories do not warrant a reply. Do not call `framework.inbox.read`.",
+  "",
+  "  Step 3. Only if you are going to draft — read the item to get sender headers and body:",
   "      curl -sS -X POST $BORINGOS_CALLBACK_URL/api/tools/framework.inbox.read \\",
   "        -H \"Authorization: Bearer $BORINGOS_CALLBACK_TOKEN\" \\",
   "        -H 'Content-Type: application/json' \\",
   "        -d \"{\\\"itemId\\\":\\\"$ITEM_ID\\\"}\"",
-  "    The response's `result.metadata` field is the existing object you must merge into. Pull `result.metadata.triage.label`, `result.from`, and `result.metadata.email.headers`.",
+  "    Pull `result.from`, `result.body`, `result.metadata`, and `result.metadata.email.headers`.",
   "",
-  "  Step 3. SKIP the draft if any of these are true. Skipping is the common case — be aggressive.",
-  "    - `metadata.triage.label` is `noise` (auto-archive material — pointless to draft for) OR `fyi` (informational, no decision needed).",
+  "  Step 4. SKIP (go to Step 5 without drafting) if any of these hold:",
   "    - `metadata.email.headers.listUnsubscribe` is non-empty, OR `listId` is non-empty, OR `precedence` is `bulk`/`list`/`junk` — bulk mailer.",
-  "    - `metadata.email.headers.autoSubmitted` is anything other than `null` / `no` — auto-generated mail (vacation reply, calendar invite system notice).",
-  "    - The body looks like a newsletter footer (single paragraph + 'unsubscribe' link), or the `from` address is `noreply@` / `no-reply@` / `notifications@` AND `replyTo` is empty.",
-  "    - `prefilter: automated` line is present — already classified as automated upstream.",
-  "    - The `from` address is the user's own address (an email they sent to themselves; no point drafting a reply to yourself). The user's primary address is the one connected via the Gmail connector — when in doubt, treat any sender that uses the same domain AND name pattern as user-self.",
-  "    If skipping, go directly to Step 5. Do NOT call `framework.inbox.update`.",
-  "",
-  "  Step 4. Otherwise — draft a polite, generic reply (3-6 sentences, plain text, no HTML, no CRM-specific knowledge). Then APPEND via `framework.inbox.update`. The tool replaces `metadata` wholesale — copy every existing key, then add or extend `replyDrafts`:",
+  "    - `metadata.email.headers.autoSubmitted` is anything other than `null` / `no` — auto-generated mail.",
+  "    - The body looks like a newsletter footer (single paragraph + 'unsubscribe' link), or `from` is `noreply@` / `no-reply@` / `notifications@` AND `replyTo` is empty.",
+  "    - The `from` address is the user's own address.",
+  "    Otherwise — draft a polite, generic reply (3-6 sentences, plain text, no HTML). APPEND via `framework.inbox.update`. The tool replaces `metadata` wholesale — copy every existing key, then add or extend `replyDrafts`:",
   "      curl -sS -X POST $BORINGOS_CALLBACK_URL/api/tools/framework.inbox.update \\",
   "        -H \"Authorization: Bearer $BORINGOS_CALLBACK_TOKEN\" \\",
   "        -H 'Content-Type: application/json' \\",
@@ -67,12 +66,14 @@ const REPLIER_AGENT_INSTRUCTIONS = [
   "        -d '{\"taskId\":\"$BORINGOS_TASK_ID\",\"status\":\"done\"}'",
   "",
   "Hard rules:",
-  "  - Skipping is the right answer for newsletters, automated mail, fyi/noise items, and self-sent mail. Do not draft for any of these.",
+  "  - Skipping is the right answer for noise, fyi, newsletters, automated mail, and self-sent mail.",
   "  - The work is complete only after Step 5 returns success — even on a skip path.",
   "  - Never send replies (no SMTP, no Gmail send_email).",
   "  - Never overwrite `metadata.replyDrafts` — always merge.",
   "  - Never overwrite other apps' keys in metadata (preserve `triage`, `email`, `crm.lens`, etc.).",
 ].join("\n");
+
+const REPLIER_AGENT_INSTRUCTIONS = REPLIER_AGENT_INSTRUCTIONS_FOR_TEST;
 
 const REPLIER_SKILL = `# Inbox Reply Drafter
 
@@ -200,6 +201,7 @@ export function buildReplierWorkflowBlocks(agentId: string): {
           "triage-rationale: {{trigger.rationale}}\n" +
           "---",
         originKind: "inbox.draft_reply",
+        originId: "{{trigger.itemId}}",
         assigneeAgentId: agentId,
       },
       config: {},

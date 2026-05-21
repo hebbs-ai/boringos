@@ -282,6 +282,7 @@ function makeCreateTask(deps: FrameworkDeps): Tool {
       assigneeAgentId: z.string().uuid().optional(),
       assigneeUserId: z.string().uuid().optional(),
       originKind: z.string().optional(),
+      originId: z.string().optional(),
       proposedParams: z.record(z.unknown()).optional(),
     }),
     async handler(
@@ -294,6 +295,7 @@ function makeCreateTask(deps: FrameworkDeps): Tool {
         assigneeAgentId?: string;
         assigneeUserId?: string;
         originKind?: string;
+        originId?: string;
         proposedParams?: Record<string, unknown>;
       },
       ctx: ToolContext,
@@ -336,6 +338,7 @@ function makeCreateTask(deps: FrameworkDeps): Tool {
         assigneeUserId,
         createdByAgentId: ctx.agentId,
         originKind,
+        originId: input.originId,
         proposedParams: input.proposedParams,
       });
 

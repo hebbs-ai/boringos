@@ -243,7 +243,8 @@ describe("framework.inbox.update emits triage.classified", () => {
   it(
     "wakes the replier ONLY for non-noise/fyi triage.classified events (RC1 workflow gate)",
     async () => {
-      const { BoringOS, createFrameworkModule } = await import("@boringos/core");
+      const { BoringOS, createFrameworkModule, createWorkflowModule } =
+        await import("@boringos/core");
       const { signCallbackToken } = await import("@boringos/agent");
       const { mkdtemp } = await import("node:fs/promises");
       const { tmpdir } = await import("node:os");
@@ -262,6 +263,10 @@ describe("framework.inbox.update emits triage.classified", () => {
         // not the runtime side effects.
       });
       app.module(createFrameworkModule);
+      // RC1: the replier wake path now flows through the workflow
+      // dispatcher, which calls the `workflow.run` tool — so the
+      // workflow module must be registered for this test.
+      app.module(createWorkflowModule);
 
       const server = await app.listen(0);
       try {
@@ -399,11 +404,12 @@ describe("framework.inbox.update emits triage.classified", () => {
 
         // Wait for the gating handler's async wake/task path to
         // complete. The event handler is fire-and-forget; the bus
-        // returns after its `await`s settle, but the engine wake
-        // path inside includes a `dynamic import` which extends
-        // the microtask chain a tick longer than awaiting the bus
-        // alone covers.
-        const flush = () => new Promise((r) => setTimeout(r, 100));
+        // returns after its `await`s settle, but the workflow
+        // dispatcher path includes several dynamic imports + a
+        // dispatch chain through workflow.run → runWorkflowDag →
+        // framework.tasks.create that extends the microtask chain
+        // a few ticks longer than awaiting the bus alone covers.
+        const flush = () => new Promise((r) => setTimeout(r, 500));
 
         // RC1: noise/fyi are filtered at the workflow condition
         // blocks before the task block runs. The replier only wakes

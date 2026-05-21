@@ -57,6 +57,7 @@ export interface ContextBuildEvent {
   tenantId: string;
   runId: string;
   taskId?: string;
+  taskOriginKind?: string;
   wakeReason: WakeReason;
   memory: MemoryProvider | null;
   previousSessionId?: string;

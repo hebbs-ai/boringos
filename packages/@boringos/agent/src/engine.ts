@@ -179,11 +179,12 @@ export function createAgentEngine(config: AgentEngineConfig): AgentEngine {
       return;
     }
     const taskRows = await db
-      .select({ sessionId: tasks.sessionId })
+      .select({ sessionId: tasks.sessionId, originKind: tasks.originKind })
       .from(tasks)
       .where(eq(tasks.id, job.taskId))
       .limit(1);
     const previousSessionId = taskRows[0]?.sessionId ?? undefined;
+    const taskOriginKind = taskRows[0]?.originKind ?? undefined;
 
     // task_23 — resolve wake-context (who is this run for) and
     // provision a per-run workdir with Drive symlinked under
@@ -265,6 +266,7 @@ export function createAgentEngine(config: AgentEngineConfig): AgentEngine {
       tenantId: job.tenantId,
       runId,
       taskId: job.taskId,
+      taskOriginKind,
       wakeReason: job.wakeReason,
       memory,
       previousSessionId,

@@ -34,6 +34,7 @@ export function createSkillsProvider(deps: SkillsProviderDeps): ContextProvider 
         agentId: event.agent.id,
         agentRole: event.agent.role,
         taskId: event.taskId,
+        taskOriginKind: event.taskOriginKind,
       });
       if (skills.length === 0) return null;
 

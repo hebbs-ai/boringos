@@ -189,6 +189,98 @@ describe("RC1 — replier workflow + skill targeting", () => {
   });
 });
 
+describe("framework.tasks.create — auto-attribute system inbox tasks to tenant admin", () => {
+  it("sets createdByUserId from user_tenants when originKind is inbox.* and ctx has no user", async () => {
+    // System inbox tasks (created via internal workflow dispatch)
+    // have no user in ctx. Without an attribution, they don't show
+    // in the Done tab. We auto-resolve to the tenant's primary
+    // admin so completed inbox runs surface in the owner's Done.
+    const { BoringOS, createFrameworkModule } = await import("@boringos/core");
+    const { mkdtemp } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+
+    const dataDir = await mkdtemp(join(tmpdir(), "boringos-tasks-attrib-"));
+    const port = 15800 + Math.floor(Math.random() * 100);
+
+    const app = new BoringOS({
+      database: { embedded: true, dataDir, port },
+      drive: { root: join(dataDir, "drive") },
+      auth: { secret: "test-secret" },
+    });
+    app.module(createFrameworkModule);
+
+    const server = await app.listen(0);
+    try {
+      const { tenants, tasks: tasksTable } = await import("@boringos/db");
+      const { sql: drizzleSql, eq: drizzleEq } = await import("drizzle-orm");
+      const { dispatch, createToolRegistry, createSkillRegistry, createModuleRegistry } =
+        await import("@boringos/agent");
+
+      const db = (server as unknown as {
+        context: { db: import("@boringos/db").Db };
+      }).context.db;
+
+      const tenantId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+      const adminUserId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+
+      await db
+        .insert(tenants)
+        .values({ id: tenantId, name: "Attr", slug: "attr" })
+        .onConflictDoNothing();
+
+      // auth_users + user_tenants are bootstrapped by BoringOS auth
+      // setup at listen() time. Insert a row directly so the
+      // auto-resolve lookup has a target.
+      await db.execute(drizzleSql`
+        INSERT INTO auth_users (id, name, email)
+        VALUES (${adminUserId}, 'Test Admin', ${`admin-${adminUserId}@test`})
+        ON CONFLICT (id) DO NOTHING
+      `);
+      await db.execute(drizzleSql`
+        INSERT INTO user_tenants (id, user_id, tenant_id, role)
+        VALUES (gen_random_uuid()::text, ${adminUserId}, ${tenantId}, 'admin')
+        ON CONFLICT DO NOTHING
+      `);
+
+      // Build a registry containing the framework module so dispatch
+      // can find framework.tasks.create.
+      const tools = createToolRegistry();
+      const skills = createSkillRegistry();
+      const modules = createModuleRegistry({ tools, skills });
+      modules.register(createFrameworkModule({ db, engine: null } as never));
+
+      // Dispatch framework.tasks.create with no agentId / no
+      // assigneeUserId / no createdByUserId — simulates a workflow
+      // dispatch where the task is for an inbox flow.
+      const result = await dispatch(
+        { registry: tools, db },
+        "framework.tasks.create",
+        {
+          title: "Triage inbox item",
+          description: "test",
+          originKind: "inbox.item_created",
+          originId: "item-1",
+        },
+        { tenantId, invokedBy: "workflow" },
+      );
+      expect(result.result.ok).toBe(true);
+
+      // Look up the created task and verify createdByUserId was
+      // auto-resolved to the admin.
+      const taskRows = await db
+        .select()
+        .from(tasksTable)
+        .where(drizzleEq(tasksTable.tenantId, tenantId));
+      expect(taskRows.length).toBe(1);
+      expect(taskRows[0].createdByUserId).toBe(adminUserId);
+      expect(taskRows[0].originKind).toBe("inbox.item_created");
+    } finally {
+      await server.close();
+    }
+  });
+});
+
 describe("RC8 — inbox-triage workflow shape (Layer 2)", () => {
   it("inbox-triage workflow has an automated-mail skip condition before the task block", async () => {
     // Layer 2 fix: the onIngest direct-fanout in boringos.ts is gone.

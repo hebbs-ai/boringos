@@ -10,7 +10,7 @@
 // Drizzle operations. (legacy routes are gone) in parallel
 // during the migration; cutover removes them.
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "@boringos/db";
 import {
   tasks,
@@ -281,6 +281,7 @@ function makeCreateTask(deps: FrameworkDeps): Tool {
       parentId: z.string().uuid().optional(),
       assigneeAgentId: z.string().uuid().optional(),
       assigneeUserId: z.string().uuid().optional(),
+      createdByUserId: z.string().uuid().optional(),
       originKind: z.string().optional(),
       originId: z.string().optional(),
       proposedParams: z.record(z.unknown()).optional(),
@@ -294,6 +295,7 @@ function makeCreateTask(deps: FrameworkDeps): Tool {
         parentId?: string;
         assigneeAgentId?: string;
         assigneeUserId?: string;
+        createdByUserId?: string;
         originKind?: string;
         originId?: string;
         proposedParams?: Record<string, unknown>;
@@ -326,6 +328,34 @@ function makeCreateTask(deps: FrameworkDeps): Tool {
         }
       }
 
+      // Inbox / system tasks created via internal workflow dispatch
+      // have no user in context, so they'd otherwise insert with
+      // createdByUserId=null and never surface in a user's "Done"
+      // tab (the presenter filters by createdByUserId or
+      // assigneeUserId). Default to the tenant's primary admin so
+      // the user that owns the tenant sees completed inbox runs in
+      // their Done tab. Manual / agent-initiated tasks are unaffected.
+      let createdByUserId = input.createdByUserId;
+      const SYSTEM_INBOX_ORIGINS = new Set([
+        "inbox.item_created",
+        "inbox.draft_reply",
+        "routine",
+      ]);
+      if (!createdByUserId && SYSTEM_INBOX_ORIGINS.has(originKind)) {
+        try {
+          const adminRows = (await db.execute(sql`
+            SELECT user_id FROM user_tenants
+            WHERE tenant_id = ${ctx.tenantId} AND role = 'admin'
+            ORDER BY id ASC LIMIT 1
+          `)) as unknown as Array<{ user_id: string }>;
+          if (adminRows[0]?.user_id) {
+            createdByUserId = adminRows[0].user_id;
+          }
+        } catch {
+          // user_tenants may not exist in some test setups — non-fatal.
+        }
+      }
+
       await db.insert(tasks).values({
         id,
         tenantId: ctx.tenantId,
@@ -337,6 +367,7 @@ function makeCreateTask(deps: FrameworkDeps): Tool {
         assigneeAgentId: input.assigneeAgentId,
         assigneeUserId,
         createdByAgentId: ctx.agentId,
+        createdByUserId,
         originKind,
         originId: input.originId,
         proposedParams: input.proposedParams,

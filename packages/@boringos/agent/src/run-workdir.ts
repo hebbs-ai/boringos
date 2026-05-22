@@ -22,21 +22,36 @@ import { join, resolve } from "node:path";
 export interface RunWorkdirOpts {
   runId: string;
   /**
-   * Parent directory under which `<runId>/` is created. Defaults to
+   * Stable directory key. Defaults to `runId`, but callers that need
+   * the CLI's `cwd` to be IDENTICAL across successive wakes must pass a
+   * stable value (the task id). The agent CLI stores its resumable
+   * session keyed by `cwd` (e.g. Claude under
+   * `~/.claude/projects/<encoded-cwd>/<sessionId>.jsonl`); if the cwd
+   * changes every run, `--resume <sessionId>` can't find the prior
+   * conversation and the run dies with "No conversation found". Sessions
+   * are task-scoped, so the workdir must be task-scoped too.
+   */
+  key?: string;
+  /**
+   * Parent directory under which `<key>/` is created. Defaults to
    * `.data/agent-workdirs/` relative to `process.cwd()`.
    */
   baseDir?: string;
 }
 
 /**
- * Create `<baseDir>/<runId>/` (recursive) and return its absolute
- * path. Idempotent — re-calling for the same runId is a no-op.
+ * Create `<baseDir>/<key ?? runId>/` (recursive) and return its
+ * absolute path. The dir is wiped first so a re-used key (e.g. the same
+ * task waking again, or recovery after a crash that skipped cleanup)
+ * always starts from a clean scratchpad — the agent's session lives
+ * outside the workdir, so this never touches resumable state.
  */
 export async function provisionRunWorkdir(opts: RunWorkdirOpts): Promise<string> {
   const base = opts.baseDir
     ? resolve(opts.baseDir)
     : resolve(process.cwd(), ".data", "agent-workdirs");
-  const workDir = join(base, opts.runId);
+  const workDir = join(base, opts.key ?? opts.runId);
+  await rm(workDir, { recursive: true, force: true });
   await mkdir(workDir, { recursive: true });
   return workDir;
 }

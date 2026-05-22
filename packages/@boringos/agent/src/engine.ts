@@ -201,7 +201,12 @@ export function createAgentEngine(config: AgentEngineConfig): AgentEngine {
     let workDir: string | null = null;
     if (wakeContext && config.driveRoot) {
       try {
-        workDir = await provisionRunWorkdir({ runId });
+        // Key the workdir by task, not run: the CLI session we resume
+        // (previousSessionId) is task-scoped and is stored keyed by cwd,
+        // so the cwd must stay identical across this task's wakes or
+        // `--resume` fails with "No conversation found". taskId is
+        // guaranteed present here (checked above).
+        workDir = await provisionRunWorkdir({ runId, key: job.taskId ?? runId });
         await injectDrive({
           workDir,
           driveRoot: config.driveRoot,

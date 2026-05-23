@@ -10,11 +10,13 @@ import {
   createWorkflow,
   deleteWorkflow,
   duplicateWorkflow,
+  listAgents,
+  listEventTypes,
   listTools,
   listWorkflows,
 } from "./api.js";
 import { Editor } from "./Editor.js";
-import type { ToolRow, WorkflowSummary } from "./types.js";
+import type { AgentRow, EventTypeRow, ToolRow, WorkflowSummary } from "./types.js";
 
 export function Workflows() {
   const { user, token } = useAuth();
@@ -22,15 +24,24 @@ export function Workflows() {
 
   const [workflows, setWorkflows] = useState<WorkflowSummary[] | null>(null);
   const [tools, setTools] = useState<ToolRow[]>([]);
+  const [agents, setAgents] = useState<AgentRow[]>([]);
+  const [eventTypes, setEventTypes] = useState<EventTypeRow[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!user?.tenantId) return;
     try {
-      const [wfs, ts] = await Promise.all([listWorkflows(auth), listTools(auth)]);
+      const [wfs, ts, ag, ev] = await Promise.all([
+        listWorkflows(auth),
+        listTools(auth),
+        listAgents(auth),
+        listEventTypes(auth),
+      ]);
       setWorkflows(wfs);
       setTools(ts);
+      setAgents(ag);
+      setEventTypes(ev);
       if (!activeId && wfs.length > 0) setActiveId(wfs[0].id);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -51,7 +62,7 @@ export function Workflows() {
     try {
       const wf = await createWorkflow(auth, {
         name: "Untitled workflow",
-        blocks: [{ id: "trigger", kind: "trigger" }],
+        blocks: [{ id: "trigger", kind: "trigger", type: "trigger", name: "When this happens" }],
         edges: [],
       });
       setWorkflows((arr) => [...(arr ?? []), wf]);
@@ -164,7 +175,7 @@ export function Workflows() {
           </div>
         )}
         {active ? (
-          <Editor key={active.id} auth={auth} workflow={active} tools={tools} onSaved={handleSaved} />
+          <Editor key={active.id} auth={auth} workflow={active} tools={tools} agents={agents} eventTypes={eventTypes} onSaved={handleSaved} />
         ) : (
           <div className="flex-1 flex items-center justify-center text-xs text-muted">
             {workflows && workflows.length === 0

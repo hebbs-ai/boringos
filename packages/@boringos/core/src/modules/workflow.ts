@@ -36,13 +36,15 @@ authoring new ones programmatically — that's a human-curation task.`;
 /**
  * Walks a DAG and invokes tools per block. Phase 7 of task_12.
  *
- * Supported block kinds in this iteration:
+ * Supported block kinds:
  *  - `trigger` — entry point, output = the trigger payload
- *  - `tool` — invokes the tool by full name through the dispatcher;
- *    inputs may reference upstream node outputs via `{{nodeId.field}}`
- *
- * Deferred to a polish pass:
- *  - condition / for_each / delay / transform / branch
+ *  - `tool` / `agent` — dispatch a tool by full name (agent defaults to
+ *    framework.agents.wake); inputs reference upstream outputs via
+ *    `{{nodeId.field}}`
+ *  - `condition` — branches the run on a comparison (see evaluateCondition)
+ *  - `for_each` — iterate an array, dispatch a tool per item
+ *  - `delay` — wait N ms · `transform` — reshape outputs · `sticky` — note
+ *  - `branch` — passthrough router (downstream pruned by upstream handle)
  *
  * Returns: an object mapping each visited block id → its output.
  */
@@ -302,9 +304,13 @@ async function runWorkflowDag(
         }
         blockOutput = dispatched.result.result;
       } else if (kind === "condition") {
-        // config: { field: "{{nodeId.path}}" | literal, operator,
-        //          value }. Operators: equals, not_equals,
-        //          truthy, falsy, contains, gt, gte, lt, lte.
+        // config: { field: "{{nodeId.path}}" | literal, operator, value }.
+        // Both field (LHS) and value (RHS) are template-resolved, so a
+        // condition can compare two upstream values. Operators: equals,
+        // not_equals, truthy, falsy, contains, gt, gte, lt, lte, in.
+        // Comparison is type-tolerant (see evaluateCondition) so the
+        // editor's friendly inputs work even when a value arrives as a
+        // string — e.g. "5" > 3, or "noise, fyi" for `in`.
         const cfg = (block.config ?? {}) as {
           field?: unknown;
           operator?: string;
@@ -315,44 +321,8 @@ async function runWorkflowDag(
         blockRunId = await recordBlockStart(block, inputSnapshot, resolvedConfigSnap);
         emitEvent("workflow:block_started", { blockId: id, blockType: kind });
         const lhs = resolveTemplates({ x: cfg.field }, outputs).x;
-        const op = cfg.operator ?? "truthy";
-        const rhs = cfg.value;
-        let truth = false;
-        switch (op) {
-          case "equals":
-            truth = lhs === rhs;
-            break;
-          case "not_equals":
-            truth = lhs !== rhs;
-            break;
-          case "truthy":
-            truth = Boolean(lhs);
-            break;
-          case "falsy":
-            truth = !lhs;
-            break;
-          case "contains":
-            truth =
-              typeof lhs === "string" && typeof rhs === "string" && lhs.includes(rhs);
-            break;
-          case "gt":
-            truth = typeof lhs === "number" && typeof rhs === "number" && lhs > rhs;
-            break;
-          case "gte":
-            truth = typeof lhs === "number" && typeof rhs === "number" && lhs >= rhs;
-            break;
-          case "lt":
-            truth = typeof lhs === "number" && typeof rhs === "number" && lhs < rhs;
-            break;
-          case "lte":
-            truth = typeof lhs === "number" && typeof rhs === "number" && lhs <= rhs;
-            break;
-          case "in":
-            truth = Array.isArray(rhs) && rhs.includes(lhs);
-            break;
-          default:
-            throw new Error(`Block ${id}: unknown condition operator ${op}`);
-        }
+        const rhs = resolveTemplates({ x: cfg.value }, outputs).x;
+        const truth = evaluateCondition(cfg.operator ?? "truthy", lhs, rhs);
         const handle = truth ? "true" : "false";
         selectedHandle.set(id, handle);
         blockOutput = { result: truth, selectedHandle: handle };
@@ -431,6 +401,34 @@ async function runWorkflowDag(
         blockRunId = await recordBlockStart(block, inputSnapshot, resolvedConfigSnap);
         emitEvent("workflow:block_started", { blockId: id, blockType: kind });
         blockOutput = resolveTemplates(cfg.mapping ?? {}, outputs);
+      } else if (kind === "agent") {
+        // Wake an agent on a task. Same dispatch path as a tool block,
+        // defaulting to framework.agents.wake when no tool is set.
+        const toolName = block.tool ?? "framework.agents.wake";
+        const inputsToUse =
+          args.startAtInputsOverride && id === args.startAtBlockId
+            ? args.startAtInputsOverride
+            : block.inputs ?? {};
+        const resolvedInputs = resolveTemplates(inputsToUse, outputs);
+        inputSnapshot = { ...outputs };
+        resolvedConfigSnap = { tool: toolName, inputs: resolvedInputs };
+        blockRunId = await recordBlockStart(block, inputSnapshot, resolvedConfigSnap);
+        emitEvent("workflow:block_started", { blockId: id, blockType: kind, tool: toolName });
+        const dispatched = await dispatch(
+          { registry: args.registry, db: args.db },
+          toolName,
+          resolvedInputs,
+          { ...args.ctx, invokedBy: "workflow" },
+        );
+        if (!dispatched.result.ok) {
+          await recordBlockEnd(blockRunId, block, "failed", null, dispatched.result.error, startedAtMs);
+          return {
+            outputs,
+            visited,
+            failed: { blockId: id, error: dispatched.result.error },
+          };
+        }
+        blockOutput = dispatched.result.result;
       } else if (kind === "branch") {
         // Like condition but doesn't compute truth — the upstream
         // node sets selectedHandle, this just acts as a router.
@@ -593,6 +591,74 @@ function resolveTemplates(
   };
   const result = visit(inputs);
   return (result && typeof result === "object" ? result : {}) as Record<string, unknown>;
+}
+
+/**
+ * Evaluate a `condition` block's operator against resolved LHS/RHS.
+ *
+ * Comparison is intentionally type-tolerant: the visual editor lets
+ * non-technical authors type plain values, so a numeric comparison
+ * must still work when the value arrives as the string "5", and `in`
+ * must accept a comma-separated string ("noise, fyi") as well as a
+ * real array. Exported for unit testing.
+ */
+export function evaluateCondition(op: string, lhs: unknown, rhs: unknown): boolean {
+  const asNum = (v: unknown): number =>
+    typeof v === "number"
+      ? v
+      : typeof v === "string" && v.trim() !== ""
+        ? Number(v)
+        : NaN;
+  const numericPair = (a: unknown, b: unknown): [number, number] | null => {
+    const na = asNum(a);
+    const nb = asNum(b);
+    return Number.isFinite(na) && Number.isFinite(nb) ? [na, nb] : null;
+  };
+  // Numeric comparison when both sides look numeric, else string eq.
+  const looseEq = (a: unknown, b: unknown): boolean => {
+    const pair = numericPair(a, b);
+    return pair ? pair[0] === pair[1] : String(a ?? "") === String(b ?? "");
+  };
+  // RHS for `in`: a real array passes through; a string is split on
+  // commas so "noise, fyi" works from a plain text field.
+  const toList = (v: unknown): unknown[] => {
+    if (Array.isArray(v)) return v;
+    if (typeof v === "string")
+      return v.split(",").map((s) => s.trim()).filter((s) => s !== "");
+    return v == null ? [] : [v];
+  };
+  switch (op) {
+    case "equals":
+      return looseEq(lhs, rhs);
+    case "not_equals":
+      return !looseEq(lhs, rhs);
+    case "truthy":
+      return Boolean(lhs);
+    case "falsy":
+      return !lhs;
+    case "contains":
+      return String(lhs ?? "").includes(String(rhs ?? ""));
+    case "gt": {
+      const pair = numericPair(lhs, rhs);
+      return pair ? pair[0] > pair[1] : false;
+    }
+    case "gte": {
+      const pair = numericPair(lhs, rhs);
+      return pair ? pair[0] >= pair[1] : false;
+    }
+    case "lt": {
+      const pair = numericPair(lhs, rhs);
+      return pair ? pair[0] < pair[1] : false;
+    }
+    case "lte": {
+      const pair = numericPair(lhs, rhs);
+      return pair ? pair[0] <= pair[1] : false;
+    }
+    case "in":
+      return toList(rhs).some((item) => looseEq(lhs, item));
+    default:
+      throw new Error(`Unknown condition operator: ${op}`);
+  }
 }
 
 export const createWorkflowModule: ModuleFactory = (deps) => {

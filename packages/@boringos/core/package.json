@@ -30,7 +30,8 @@
     "@types/adm-zip": "^0.5.8",
     "adm-zip": "^0.5.17",
     "better-auth": "^1.6.0",
-    "hono": "^4.7.0"
+    "hono": "^4.7.0",
+    "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -13,6 +13,7 @@ import {
   ReactFlow,
   applyEdgeChanges,
   applyNodeChanges,
+  reconnectEdge,
   type Connection,
   type Edge as RFEdge,
   type EdgeChange,
@@ -68,6 +69,22 @@ function InsertEdge(props: EdgeProps) {
         className="transition-[stroke-width] hover:[stroke-width:2]"
       />
       <EdgeLabelRenderer>
+        {(sourceHandleId === "true" || sourceHandleId === "false") && (
+          <div
+            style={{
+              position: "absolute",
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY - 13}px)`,
+              pointerEvents: "none",
+            }}
+            className={`px-1 rounded text-[9px] font-semibold ${
+              sourceHandleId === "true"
+                ? "bg-emerald-50 text-emerald-700"
+                : "bg-rose-50 text-rose-700"
+            }`}
+          >
+            {sourceHandleId === "true" ? "Yes" : "No"}
+          </div>
+        )}
         <button
           type="button"
           data-edge-insert={id}
@@ -101,6 +118,8 @@ export interface CanvasProps {
   selectedId: string | null;
   pinnedIds: Set<string>;
   blockRuns?: BlockRun[];
+  /** event type → human label, for trigger node labels. */
+  eventLabels?: Record<string, string>;
   mode: "edit" | "view";
   onSelect: (id: string | null) => void;
   onChange: (blocks: Block[], edges: Edge[]) => void;
@@ -121,6 +140,7 @@ function CanvasInner({
   selectedId,
   pinnedIds,
   blockRuns,
+  eventLabels,
   mode,
   onSelect,
   onChange,
@@ -167,6 +187,7 @@ function CanvasInner({
             status: run?.status ?? null,
             durationMs: run?.durationMs ?? null,
             pinned: pinnedIds.has(b.id),
+            eventLabels,
           },
           deletable: mode === "edit",
           draggable: mode === "edit",
@@ -188,7 +209,7 @@ function CanvasInner({
     return () => {
       cancelled = true;
     };
-  }, [blocks, edges, selectedId, pinnedIds, blockRuns, mode]);
+  }, [blocks, edges, selectedId, pinnedIds, blockRuns, mode, eventLabels]);
 
   // Listen for the in-edge "+" click and proxy to parent.
   useEffect(() => {
@@ -286,6 +307,18 @@ function CanvasInner({
     [rfNodes, projectChange],
   );
 
+  // Drag an edge endpoint onto another handle to reroute it.
+  const onReconnect = useCallback(
+    (oldEdge: RFEdge, newConnection: Connection) => {
+      setRfEdges((eds) => {
+        const next = reconnectEdge(oldEdge, newConnection, eds);
+        projectChange(rfNodes, next);
+        return next;
+      });
+    },
+    [rfNodes, projectChange],
+  );
+
   const onPaneClick = useCallback(() => onSelect(null), [onSelect]);
   const onNodeClick = useCallback(
     (_e: React.MouseEvent, n: Node) => onSelect(n.id),
@@ -305,6 +338,7 @@ function CanvasInner({
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onReconnect={onReconnect}
         onNodeClick={onNodeClick}
         onPaneClick={onPaneClick}
         onInit={setRfInstance}

@@ -74,9 +74,18 @@ describe("v2 — admin views", () => {
 
       // /tools — flat list across all modules.
       const toolsRes = await fetch(`${server.url}/api/admin/tools`, { headers: adminHeaders });
-      const toolsBody = await toolsRes.json() as { tools: Array<{ fullName: string }> };
+      const toolsBody = await toolsRes.json() as {
+        tools: Array<{ fullName: string; inputSchema?: { type?: string; properties?: Record<string, unknown> } | null }>;
+      };
       expect(toolsBody.tools.some((t) => t.fullName === "framework.tasks.create")).toBe(true);
       expect(toolsBody.tools.some((t) => t.fullName === "memory.remember")).toBe(true);
+
+      // inputSchema — Zod inputs converted to JSON Schema so the
+      // workflow editor can render a typed per-field form.
+      const createTask = toolsBody.tools.find((t) => t.fullName === "framework.tasks.create");
+      expect(createTask?.inputSchema?.type).toBe("object");
+      expect(createTask?.inputSchema?.properties).toBeTruthy();
+      expect(Object.keys(createTask!.inputSchema!.properties!)).toContain("title");
 
       // /tool-calls — audit log for the tenant.
       const callsRes = await fetch(`${server.url}/api/admin/tool-calls`, { headers: adminHeaders });

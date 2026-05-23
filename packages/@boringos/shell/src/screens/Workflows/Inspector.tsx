@@ -3,13 +3,20 @@
 // Right-pane inspector. Three sections — Inputs (form), Last run
 // (resolved I/O), and per-block actions: pin output, replay from here.
 
-import type { BlockRun, ToolRow, Block } from "./types.js";
+import type { BlockRun, ToolRow, EventTypeRow, Block } from "./types.js";
 import { BlockForm } from "./InspectorForms.js";
-import { blockKind, kindAccent } from "./utils.js";
+import type { FieldSource } from "./ValuePicker.js";
+import { blockKind, blockLabel, kindAccent } from "./utils.js";
 
 export interface InspectorProps {
   block: Block | null;
   tools: ToolRow[];
+  /** Referenceable upstream values for the selected block. */
+  sources: FieldSource[];
+  /** Declared events for the trigger picker. */
+  eventTypes: EventTypeRow[];
+  /** event type → human label, for the header. */
+  eventLabels: Record<string, string>;
   onChange: (patch: Partial<Block>) => void;
   onDelete: () => void;
   blockRun?: BlockRun | null;
@@ -21,6 +28,9 @@ export interface InspectorProps {
 export function Inspector({
   block,
   tools,
+  sources,
+  eventTypes,
+  eventLabels,
   onChange,
   onDelete,
   blockRun,
@@ -48,21 +58,18 @@ export function Inspector({
   return (
     <aside className="w-[300px] shrink-0 border-l border-border-subtle overflow-y-auto flex flex-col">
       <header className="px-4 pt-4 pb-3 border-b border-border-subtle">
-        <div className="flex items-center gap-2">
-          <span
-            className={`text-[9px] font-semibold tracking-wider px-1.5 py-0.5 rounded ${accent.bg} ${accent.text}`}
-          >
-            {accent.label}
-          </span>
-          <code className="text-[10px] font-mono text-muted ml-auto">{block.id}</code>
-        </div>
+        <span
+          className={`text-[9px] font-semibold tracking-wider px-1.5 py-0.5 rounded ${accent.bg} ${accent.text}`}
+        >
+          {accent.label}
+        </span>
         <div className="mt-1.5 text-sm font-medium text-text truncate">
-          {block.name || (kind === "tool" ? block.tool : kind)}
+          {blockLabel(block, eventLabels)}
         </div>
       </header>
 
       <div className="px-4 py-4 flex-1">
-        <BlockForm block={block} onChange={onChange} tools={tools} />
+        <BlockForm key={block.id} block={block} onChange={onChange} tools={tools} sources={sources} eventTypes={eventTypes} />
 
         {blockRun && (
           <section className="mt-5 pt-4 border-t border-border-subtle">

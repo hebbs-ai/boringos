@@ -14,6 +14,7 @@ export interface BlockNodeData extends Record<string, unknown> {
   status?: BlockRunStatus | null;
   durationMs?: number | null;
   pinned?: boolean;
+  eventLabels?: Record<string, string>;
 }
 
 const STATUS_DOT: Record<BlockRunStatus, string> = {
@@ -143,7 +144,7 @@ export function BlockNode({ data }: NodeProps<Node<BlockNodeData>>) {
 
   if (k === "sticky") return <StickyNode data={data} />;
 
-  const label = blockLabel(block);
+  const label = blockLabel(block, data.eventLabels);
   const sub = blockSubLabel(block);
 
   return (

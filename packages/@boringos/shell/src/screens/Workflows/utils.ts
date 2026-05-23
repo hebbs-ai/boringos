@@ -13,23 +13,59 @@ export function blockKind(b: Block): BlockKind {
   return (b.kind ?? b.type ?? "tool") as BlockKind;
 }
 
-export function blockLabel(b: Block): string {
-  if (b.name) return b.name;
+const OPERATOR_WORDS: Record<string, string> = {
+  equals: "is",
+  not_equals: "is not",
+  contains: "contains",
+  in: "is one of",
+  gt: ">",
+  gte: "≥",
+  lt: "<",
+  lte: "≤",
+  truthy: "is set",
+  falsy: "is empty",
+};
+
+/** "label" from "{{trigger.label}}" — the human-readable tail of a path. */
+function lastSegment(field?: string): string | undefined {
+  if (!field || typeof field !== "string") return undefined;
+  const m = /^\{\{([a-zA-Z0-9_.-]+)\}\}$/.exec(field.trim());
+  const path = m ? m[1]! : field.trim();
+  return path.split(".").pop() || undefined;
+}
+
+export function blockLabel(b: Block, eventLabels?: Record<string, string>): string {
   const k = blockKind(b);
+  // A name that's just the kind word (e.g. a seeded "trigger") is
+  // treated as auto — fall through to the friendly computed label.
+  if (b.name && b.name !== k) return b.name;
   if (k === "tool" && b.tool) return b.tool.split(".").slice(-1)[0] ?? b.tool;
-  if (k === "agent") return "wake agent";
-  if (k === "trigger") return "trigger";
+  if (k === "agent") return "Wake an agent";
+  if (k === "trigger") {
+    const ev = (b.config as { eventType?: string } | undefined)?.eventType;
+    if (!ev) return "When this happens";
+    const desc = eventLabels?.[ev];
+    return desc ? `When ${desc.charAt(0).toLowerCase()}${desc.slice(1)}` : `When ${ev}`;
+  }
   if (k === "condition") {
     const c = b.config as { field?: string; operator?: string; value?: unknown } | undefined;
-    if (c?.field && c?.operator) return `if ${c.operator} ${c.value ?? ""}`.trim();
-    return "if";
+    const field = lastSegment(c?.field);
+    const op = c?.operator ?? "truthy";
+    const word = OPERATOR_WORDS[op] ?? op;
+    if (field) {
+      const showVal = op !== "truthy" && op !== "falsy" && c?.value != null && c?.value !== "";
+      return `If ${field} ${word}${showVal ? ` ${String(c?.value)}` : ""}`.trim();
+    }
+    return "Check a value";
   }
-  if (k === "for_each") return "for each";
+  if (k === "for_each") return "For each item";
   if (k === "delay") {
     const ms = (b.config as { ms?: number } | undefined)?.ms ?? 0;
-    return ms ? `wait ${formatMs(ms)}` : "delay";
+    return ms ? `Wait ${formatMs(ms)}` : "Wait";
   }
-  if (k === "transform") return "transform";
+  if (k === "transform") return "Build a value";
+  if (k === "branch") return "Branch";
+  if (k === "sticky") return "Note";
   return k;
 }
 
@@ -65,7 +101,9 @@ export function defaultBlock(kind: BlockKind, id: string, tool?: string): Block 
     return { id, kind: "tool", tool: tool ?? "", inputs: {} };
   }
   if (kind === "trigger") {
-    return { id, kind: "trigger" };
+    // `type: "trigger"` matters — the event→workflow router matches on
+    // the legacy `type` field, so a trigger without it never fires.
+    return { id, kind: "trigger", type: "trigger" };
   }
   if (kind === "condition") {
     return { id, kind: "condition", config: { field: "", operator: "truthy", value: "" } };
@@ -80,7 +118,7 @@ export function defaultBlock(kind: BlockKind, id: string, tool?: string): Block 
     return { id, kind: "transform", config: { mapping: {} } };
   }
   if (kind === "agent") {
-    return { id, kind: "tool", tool: "framework.agents.wake", inputs: {} };
+    return { id, kind: "agent", tool: "framework.agents.wake", inputs: {} };
   }
   return { id, kind };
 }

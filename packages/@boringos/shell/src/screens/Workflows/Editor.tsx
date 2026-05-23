@@ -6,13 +6,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { ToolRow, Block, Edge, WorkflowSummary, BlockRun, BlockRunStatus } from "./types.js";
+import type { ToolRow, AgentRow, EventTypeRow, Block, Edge, WorkflowSummary, BlockRun, BlockRunStatus } from "./types.js";
 import { Canvas } from "./Canvas.js";
 import { Inspector } from "./Inspector.js";
 import { Palette } from "./Palette.js";
 import { RunDrawer } from "./RunDrawer.js";
 import { ForkModal } from "./ForkModal.js";
 import { defaultBlock, edgeId, newBlockId } from "./utils.js";
+import { buildFieldSources } from "./ValuePicker.js";
 import {
   forkRun,
   getRun,
@@ -39,12 +40,18 @@ export interface EditorProps {
   auth: AuthLike;
   workflow: WorkflowSummary;
   tools: ToolRow[];
+  agents: AgentRow[];
+  eventTypes: EventTypeRow[];
   onSaved: (wf: WorkflowSummary) => void;
 }
 
-export function Editor({ auth, workflow, tools, onSaved }: EditorProps) {
+export function Editor({ auth, workflow, tools, agents, eventTypes, onSaved }: EditorProps) {
   const [tab, setTab] = useState<Tab>("canvas");
   const [name, setName] = useState(workflow.name);
+  const [status, setStatus] = useState(workflow.status ?? "draft");
+  const [governingAgentId, setGoverningAgentId] = useState<string | null>(
+    workflow.governingAgentId ?? null,
+  );
   const [blocks, setBlocks] = useState<Block[]>(workflow.blocks ?? []);
   const [edges, setEdges] = useState<Edge[]>(workflow.edges ?? []);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -61,6 +68,8 @@ export function Editor({ auth, workflow, tools, onSaved }: EditorProps) {
   // Reset whenever the workflow id changes.
   useEffect(() => {
     setName(workflow.name);
+    setStatus(workflow.status ?? "draft");
+    setGoverningAgentId(workflow.governingAgentId ?? null);
     setBlocks(workflow.blocks ?? []);
     setEdges(workflow.edges ?? []);
     setSelectedId(null);
@@ -73,25 +82,34 @@ export function Editor({ auth, workflow, tools, onSaved }: EditorProps) {
     listRuns(auth, workflow.id, 25).then(setRecentRuns).catch(() => setRecentRuns([]));
   }, [auth, workflow.id]);
 
-  // Autosave debounced.
+  // Autosave (debounced) + an explicit flush for the Save button.
   const dirtyRef = useRef(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const doSave = useCallback(async () => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    dirtyRef.current = false;
+    setSaveState({ status: "saving" });
+    try {
+      const saved = await patchWorkflow(auth, workflow.id, {
+        name,
+        blocks,
+        edges,
+        status,
+        governingAgentId,
+      });
+      setSaveState({ status: "saved" });
+      onSaved(saved);
+    } catch (e) {
+      setSaveState({ status: "error", message: e instanceof Error ? e.message : String(e) });
+    }
+  }, [auth, workflow.id, name, blocks, edges, status, governingAgentId, onSaved]);
   const queueSave = useCallback(() => {
     dirtyRef.current = true;
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(async () => {
-      if (!dirtyRef.current) return;
-      dirtyRef.current = false;
-      setSaveState({ status: "saving" });
-      try {
-        const saved = await patchWorkflow(auth, workflow.id, { name, blocks, edges });
-        setSaveState({ status: "saved" });
-        onSaved(saved);
-      } catch (e) {
-        setSaveState({ status: "error", message: e instanceof Error ? e.message : String(e) });
-      }
+    saveTimer.current = setTimeout(() => {
+      if (dirtyRef.current) void doSave();
     }, 700);
-  }, [auth, workflow.id, name, blocks, edges, onSaved]);
+  }, [doSave]);
 
   // Trigger autosave when local state changes.
   useEffect(() => {
@@ -100,7 +118,7 @@ export function Editor({ auth, workflow, tools, onSaved }: EditorProps) {
       if (saveTimer.current) clearTimeout(saveTimer.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [name, blocks, edges]);
+  }, [name, blocks, edges, status, governingAgentId]);
 
   // Live updates via SSE for the active run.
   useEffect(() => {
@@ -141,6 +159,17 @@ export function Editor({ auth, workflow, tools, onSaved }: EditorProps) {
   }, [activeRun?.run.id, activeRun?.run.status, auth]);
 
   const selected = useMemo(() => blocks.find((b) => b.id === selectedId) ?? null, [blocks, selectedId]);
+  // Upstream values the selected block can reference, with last-run
+  // samples — powers the inspector's ValuePicker menus.
+  const fieldSources = useMemo(
+    () => buildFieldSources(blocks, edges, selectedId, activeRun?.blocks),
+    [blocks, edges, selectedId, activeRun],
+  );
+  // type → human label, for trigger node labels + the inspector header.
+  const eventLabels = useMemo(
+    () => Object.fromEntries(eventTypes.map((e) => [e.type, e.description])),
+    [eventTypes],
+  );
   const blockRunForSelected = useMemo(() => {
     if (!selectedId || !activeRun) return null;
     return activeRun.blocks.find((b) => b.blockId === selectedId) ?? null;
@@ -355,13 +384,23 @@ export function Editor({ auth, workflow, tools, onSaved }: EditorProps) {
           onChange={(e) => setName(e.target.value)}
           className="text-[15px] font-semibold text-text bg-transparent border-0 focus:outline-none focus:ring-0 w-72 truncate"
         />
-        <span className="text-[11px] text-muted">
-          {saveState.status === "saving" && "saving…"}
-          {saveState.status === "saved" && "saved"}
-          {saveState.status === "error" && (
-            <span className="text-rose-500">save failed: {saveState.message}</span>
-          )}
-        </span>
+        <SaveBadge state={saveState} />
+        <StatusToggle status={status} onChange={setStatus} />
+        {agents.length > 0 && (
+          <select
+            value={governingAgentId ?? ""}
+            onChange={(e) => setGoverningAgentId(e.target.value || null)}
+            title="Governing agent — the agent this workflow belongs to"
+            className="text-[11px] text-muted-strong bg-bg-warm border border-border rounded px-1.5 py-1 max-w-[150px]"
+          >
+            <option value="">No governing agent</option>
+            {agents.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+        )}
         <span className="ml-auto" />
         <Tabs current={tab} onChange={setTab} />
         <button
@@ -372,6 +411,14 @@ export function Editor({ auth, workflow, tools, onSaved }: EditorProps) {
         >
           <span>+ Block</span>
           <kbd className="font-mono text-[9px] text-muted">⌘K</kbd>
+        </button>
+        <button
+          type="button"
+          onClick={() => void doSave()}
+          disabled={saveState.status === "saving"}
+          className="text-[11px] font-medium text-text bg-bg-warm hover:bg-border/40 px-2.5 py-1 rounded border border-border disabled:opacity-50"
+        >
+          Save
         </button>
         <button
           type="button"
@@ -400,6 +447,7 @@ export function Editor({ auth, workflow, tools, onSaved }: EditorProps) {
             selectedId={selectedId}
             pinnedIds={pinnedIds}
             blockRuns={activeRun?.blocks}
+            eventLabels={eventLabels}
             mode="edit"
             onSelect={setSelectedId}
             onChange={handleCanvasChange}
@@ -411,6 +459,9 @@ export function Editor({ auth, workflow, tools, onSaved }: EditorProps) {
           <Inspector
             block={selected}
             tools={tools}
+            sources={fieldSources}
+            eventTypes={eventTypes}
+            eventLabels={eventLabels}
             onChange={handleBlockChange}
             onDelete={handleBlockDelete}
             blockRun={blockRunForSelected}
@@ -462,6 +513,48 @@ export function Editor({ auth, workflow, tools, onSaved }: EditorProps) {
         onConfirm={confirmFork}
       />
     </div>
+  );
+}
+
+function StatusToggle({ status, onChange }: { status: string; onChange: (s: string) => void }) {
+  const active = status === "active";
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(active ? "draft" : "active")}
+      className={`flex items-center gap-1.5 text-[11px] font-medium px-2 py-1 rounded border ${
+        active
+          ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+          : "bg-bg-warm border-border text-muted-strong"
+      }`}
+      title={
+        active
+          ? "Active — runs automatically when its trigger fires. Click to set to Draft."
+          : "Draft — won't run automatically. Click to activate."
+      }
+    >
+      <span className={`w-1.5 h-1.5 rounded-full ${active ? "bg-emerald-500" : "bg-border"}`} />
+      {active ? "Active" : "Draft"}
+    </button>
+  );
+}
+
+function SaveBadge({ state }: { state: SaveState }) {
+  const map = {
+    idle: { dot: "bg-emerald-500", text: "Saved", cls: "text-muted" },
+    saved: { dot: "bg-emerald-500", text: "Saved", cls: "text-muted" },
+    saving: { dot: "bg-amber-400 animate-pulse", text: "Saving…", cls: "text-muted" },
+    error: { dot: "bg-rose-500", text: "Couldn't save — click Save to retry", cls: "text-rose-600" },
+  } as const;
+  const m = map[state.status];
+  return (
+    <span
+      className={`flex items-center gap-1.5 text-[11px] ${m.cls}`}
+      title={state.status === "error" ? state.message : "Changes save automatically"}
+    >
+      <span className={`w-1.5 h-1.5 rounded-full ${m.dot}`} />
+      {m.text}
+    </span>
   );
 }
 

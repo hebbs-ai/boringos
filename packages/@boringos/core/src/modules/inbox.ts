@@ -154,6 +154,12 @@ export const createInboxModule: ModuleFactory = (deps) => {
     version: "0.1.0",
     description: "Inbound messages from connectors, awaiting triage",
     provides: ["inbox"],
+    events: [
+      {
+        type: "inbox.item_created",
+        description: "A new inbox item arrives",
+      },
+    ],
     skills: [
       {
         id: "inbox",

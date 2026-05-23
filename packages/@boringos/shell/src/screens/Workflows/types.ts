@@ -52,12 +52,32 @@ export interface WorkflowSummary {
   updatedAt?: string;
 }
 
+/**
+ * Trimmed JSON Schema (draft-7 subset) as emitted by GET /api/admin/tools
+ * for a tool's inputs. Refs are inlined server-side, so the renderer
+ * only ever sees `properties` / `items` / `enum` — never `$ref`.
+ */
+export interface JsonSchema {
+  type?: string | string[];
+  description?: string;
+  properties?: Record<string, JsonSchema>;
+  required?: string[];
+  items?: JsonSchema;
+  enum?: unknown[];
+  default?: unknown;
+  /** Present on `z.union`-style schemas; the form falls back to JSON for these. */
+  anyOf?: JsonSchema[];
+  [key: string]: unknown;
+}
+
 export interface ToolRow {
   fullName: string;
   moduleId: string;
   description: string;
   idempotency?: string;
   costHint?: string;
+  /** Tool inputs as JSON Schema; drives the per-field form. null when not derivable. */
+  inputSchema?: JsonSchema | null;
 }
 
 export interface ModuleRow {
@@ -65,6 +85,20 @@ export interface ModuleRow {
   name: string;
   description: string;
   tools: { name: string; description: string }[];
+}
+
+export interface AgentRow {
+  id: string;
+  name: string;
+  role?: string;
+  status?: string;
+}
+
+/** A workflow-triggerable event a module declares it emits. */
+export interface EventTypeRow {
+  type: string;
+  description: string;
+  moduleId?: string;
 }
 
 /**

@@ -7,6 +7,8 @@ import { authHeaders } from "./utils.js";
 import type {
   ModuleRow,
   ToolRow,
+  AgentRow,
+  EventTypeRow,
   Block,
   Edge,
   WorkflowSummary,
@@ -39,7 +41,13 @@ export async function createWorkflow(a: Auth, init: Partial<WorkflowSummary>): P
 export async function patchWorkflow(
   a: Auth,
   id: string,
-  patch: Partial<{ name: string; status: string; blocks: Block[]; edges: Edge[] }>,
+  patch: Partial<{
+    name: string;
+    status: string;
+    blocks: Block[];
+    edges: Edge[];
+    governingAgentId: string | null;
+  }>,
 ): Promise<WorkflowSummary> {
   const res = await fetch(`/api/admin/workflows/${id}`, {
     method: "PATCH",
@@ -87,6 +95,22 @@ export async function listTools(a: Auth): Promise<ToolRow[]> {
   if (!res.ok) throw new Error(`tools: ${res.status}`);
   const body = (await res.json()) as { tools: ToolRow[] };
   return body.tools ?? [];
+}
+
+export async function listAgents(a: Auth): Promise<AgentRow[]> {
+  const res = await fetch("/api/admin/agents", { headers: authHeaders(a.token, a.tenantId) });
+  if (res.status === 404) return [];
+  if (!res.ok) throw new Error(`agents: ${res.status}`);
+  const body = (await res.json()) as { agents: AgentRow[] };
+  return body.agents ?? [];
+}
+
+export async function listEventTypes(a: Auth): Promise<EventTypeRow[]> {
+  const res = await fetch("/api/admin/event-types", { headers: authHeaders(a.token, a.tenantId) });
+  if (res.status === 404) return [];
+  if (!res.ok) throw new Error(`event-types: ${res.status}`);
+  const body = (await res.json()) as { eventTypes: EventTypeRow[] };
+  return body.eventTypes ?? [];
 }
 
 export async function listModules(a: Auth): Promise<ModuleRow[]> {

@@ -227,6 +227,12 @@ export const createTriageModule: ModuleFactory = (deps) => {
       "Classify inbound messages into urgent / important / fyi / noise — wraps inbox operations under a stable tool namespace",
     provides: ["triage"],
     dependsOn: [{ capability: "inbox" }],
+    events: [
+      {
+        type: "triage.classified",
+        description: "An inbox item is triaged",
+      },
+    ],
     skills: [
       {
         id: "triage",

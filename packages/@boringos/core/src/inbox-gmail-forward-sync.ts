@@ -80,6 +80,10 @@ interface GmailMessage {
   bodyHtml?: string | null;
   date?: string | null;
   headers?: EmailHeaders;
+  /** Gmail system + user label ids on the message (e.g. CATEGORY_UPDATES,
+   *  CATEGORY_PROMOTIONS, SPAM, IMPORTANT, STARRED, user labels). A
+   *  strong triage/lead signal — persisted to `metadata.email.gmailLabels`. */
+  labelIds?: string[];
 }
 
 function emptyHeaders(): EmailHeaders {
@@ -173,9 +177,10 @@ export function buildIngestMetadata(msg: GmailMessage, opts: { now?: Date } = {}
   automated: AutomatedClassification;
 } {
   const headers = msg.headers ?? emptyHeaders();
+  const gmailLabels = msg.labelIds ?? [];
   const automated = classifyAutomatedMail({ headers, from: msg.from ?? null });
   const metadata: Record<string, unknown> = {
-    email: { headers, automated },
+    email: { headers, automated, gmailLabels },
   };
   if (msg.threadId) metadata.threadId = msg.threadId;
   if (msg.date) metadata.date = msg.date;

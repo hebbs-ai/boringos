@@ -475,12 +475,13 @@ export class GmailClient {
           const fullRes = await this.api(
             `${GMAIL_API}/messages/${msg.id}?format=full`,
           );
-          if (!fullRes.ok) return { id: msg.id, threadId: msg.threadId, subject: null, from: null, body: null, bodyHtml: null, snippet: null, date: null };
+          if (!fullRes.ok) return { id: msg.id, threadId: msg.threadId, subject: null, from: null, body: null, bodyHtml: null, snippet: null, date: null, labelIds: [] as string[] };
 
           const fullData = await fullRes.json() as {
             id: string;
             threadId: string;
             snippet?: string;
+            labelIds?: string[];
             payload?: GmailPayload & {
               headers?: Array<{ name: string; value: string }>;
             };
@@ -501,6 +502,7 @@ export class GmailClient {
             body: plain ?? html,
             bodyHtml: html,
             snippet: fullData.snippet ?? null,
+            labelIds: fullData.labelIds ?? [],
             headers: extractEmailHeaders(headers),
           };
         } catch {
@@ -513,6 +515,7 @@ export class GmailClient {
             bodyHtml: null,
             snippet: null,
             date: null,
+            labelIds: [] as string[],
             headers: emptyHeaders(),
           };
         }

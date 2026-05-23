@@ -5,11 +5,11 @@
  * assigns a task, and watches the agent execute.
  *
  * Run: npx tsx index.ts
+ * Idempotent: re-running reuses the existing tenant, agent, and runtime.
  */
 import { BoringOS } from "@boringos/core";
 import { tenants, agents, tasks, runtimes, agentRuns } from "@boringos/db";
-import { generateId } from "@boringos/shared";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 
 async function main() {
   console.log("Booting BoringOS...");
@@ -22,59 +22,71 @@ async function main() {
 
   const db = server.context.db as import("@boringos/db").Db;
 
-  // 1. Create a tenant
-  const tenantId = generateId();
-  await db.insert(tenants).values({
-    id: tenantId,
-    name: "Acme Corp",
-    slug: "acme-corp",
-  });
-  console.log(`\nCreated tenant: Acme Corp (${tenantId})`);
+  // 1. Get or create tenant
+  const TENANT_SLUG = "acme-corp";
+  let [tenant] = await db.select().from(tenants).where(eq(tenants.slug, TENANT_SLUG)).limit(1);
+  if (!tenant) {
+    [tenant] = await db.insert(tenants).values({
+      name: "Acme Corp",
+      slug: TENANT_SLUG,
+    }).returning();
+    console.log(`\nCreated tenant: Acme Corp (${tenant.id})`);
+  } else {
+    console.log(`\nReusing tenant: Acme Corp (${tenant.id})`);
+  }
+  const tenantId = tenant.id;
 
-  // 2. Create a runtime that uses 'echo' (works without any AI CLI)
-  const runtimeId = generateId();
-  await db.insert(runtimes).values({
-    id: runtimeId,
-    tenantId,
-    name: "echo-agent",
-    type: "command",
-    config: { command: "cat" }, // cat reads stdin and prints it — proves context delivery
-  });
+  // 2. Get or create runtime
+  let [runtime] = await db.select().from(runtimes)
+    .where(and(eq(runtimes.tenantId, tenantId), eq(runtimes.name, "echo-agent")))
+    .limit(1);
+  if (!runtime) {
+    [runtime] = await db.insert(runtimes).values({
+      tenantId,
+      name: "echo-agent",
+      type: "command",
+      config: { command: "cat" },
+    }).returning();
+  }
 
-  // 3. Create an agent
-  const agentId = generateId();
-  await db.insert(agents).values({
-    id: agentId,
-    tenantId,
-    name: "Code Bot",
-    role: "engineer",
-    instructions: "You are a helpful coding agent.",
-    runtimeId,
-  });
-  console.log(`Created agent: Code Bot (${agentId})`);
+  // 3. Get or create agent
+  let [agent] = await db.select().from(agents)
+    .where(and(eq(agents.tenantId, tenantId), eq(agents.name, "Code Bot")))
+    .limit(1);
+  if (!agent) {
+    [agent] = await db.insert(agents).values({
+      tenantId,
+      name: "Code Bot",
+      role: "engineer",
+      instructions: "You are a helpful coding agent.",
+      runtimeId: runtime.id,
+    }).returning();
+    console.log(`Created agent: Code Bot (${agent.id})`);
+  } else {
+    console.log(`Reusing agent: Code Bot (${agent.id})`);
+  }
 
-  // 4. Create a task
-  const taskId = generateId();
-  await db.insert(tasks).values({
-    id: taskId,
+  // 4. Create a new task every run
+  const taskNum = Date.now();
+  const [task] = await db.insert(tasks).values({
     tenantId,
     title: "Add health endpoint",
     description: "Add a GET /health endpoint that returns { status: 'ok' }.",
     status: "todo",
     priority: "medium",
-    assigneeAgentId: agentId,
-    identifier: "ACME-001",
+    assigneeAgentId: agent.id,
+    identifier: `ACME-${taskNum}`,
     originKind: "manual",
-  });
-  console.log(`Created task: ACME-001 — Add health endpoint`);
+  }).returning();
+  console.log(`Created task: ${task.identifier} — ${task.title}`);
 
   // 5. Wake the agent
   const engine = server.context.agentEngine!;
   const outcome = await engine.wake({
-    agentId,
+    agentId: agent.id,
     tenantId,
     reason: "manual_request",
-    taskId,
+    taskId: task.id,
   });
 
   if (outcome.kind === "created") {
@@ -85,7 +97,7 @@ async function main() {
     console.log("Waiting for agent to finish...\n");
     for (let i = 0; i < 30; i++) {
       await new Promise((r) => setTimeout(r, 200));
-      const runs = await db.select().from(agentRuns).where(eq(agentRuns.agentId, agentId)).limit(1);
+      const runs = await db.select().from(agentRuns).where(eq(agentRuns.agentId, agent.id)).limit(1);
       if (runs[0]?.status === "done" || runs[0]?.status === "failed") {
         console.log(`Run completed — status: ${runs[0].status}, exit code: ${runs[0].exitCode}`);
         if (runs[0].stdoutExcerpt) {

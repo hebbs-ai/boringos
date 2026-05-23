@@ -6,6 +6,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
+import { testDbConfig } from "./_helpers.js";
 
 const KEY = "hier-admin";
 
@@ -13,7 +14,7 @@ async function boot(port: number) {
   const { BoringOS } = await import("@boringos/core");
   const d = await mkdtemp(join(tmpdir(), "boringos-hier-"));
   return new BoringOS({
-    database: { embedded: true, dataDir: d, port },
+    database: testDbConfig(d, port),
     drive: { root: join(d, "drive") },
     auth: { secret: "s", adminKey: KEY },
   }).listen(0);
@@ -174,7 +175,7 @@ describe("delegation", () => {
     const { generateId } = await import("@boringos/shared");
 
     const d = await mkdtemp(join(tmpdir(), "boringos-deleg-"));
-    const conn = await createDatabase({ embedded: true, dataDir: join(d, "pg"), port: 5562 });
+    const conn = await createDatabase(testDbConfig(join(d, "pg"), 5562));
     await createMigrationManager(conn.db).apply();
 
     const tid = generateId();
@@ -215,7 +216,7 @@ describe("delegation", () => {
     const { generateId } = await import("@boringos/shared");
 
     const d = await mkdtemp(join(tmpdir(), "boringos-tier-a-"));
-    const conn = await createDatabase({ embedded: true, dataDir: join(d, "pg"), port: 5566 });
+    const conn = await createDatabase(testDbConfig(join(d, "pg"), 5566));
     await createMigrationManager(conn.db).apply();
 
     const tid = generateId();
@@ -262,7 +263,7 @@ describe("delegation", () => {
     const { generateId } = await import("@boringos/shared");
 
     const d = await mkdtemp(join(tmpdir(), "boringos-paused-"));
-    const conn = await createDatabase({ embedded: true, dataDir: join(d, "pg"), port: 5567 });
+    const conn = await createDatabase(testDbConfig(join(d, "pg"), 5567));
     await createMigrationManager(conn.db).apply();
 
     const tid = generateId();
@@ -294,7 +295,7 @@ describe("hierarchy provider", () => {
     const { generateId } = await import("@boringos/shared");
 
     const d = await mkdtemp(join(tmpdir(), "boringos-peers-"));
-    const conn = await createDatabase({ embedded: true, dataDir: join(d, "pg"), port: 5569 });
+    const conn = await createDatabase(testDbConfig(join(d, "pg"), 5569));
     await createMigrationManager(conn.db).apply();
 
     const tid = generateId();
@@ -481,7 +482,7 @@ describe("handoff", () => {
     const { eq } = await import("drizzle-orm");
 
     const d = await mkdtemp(join(tmpdir(), "boringos-handoff-"));
-    const conn = await createDatabase({ embedded: true, dataDir: join(d, "pg"), port: 5568 });
+    const conn = await createDatabase(testDbConfig(join(d, "pg"), 5568));
     await createMigrationManager(conn.db).apply();
 
     const tid = generateId();

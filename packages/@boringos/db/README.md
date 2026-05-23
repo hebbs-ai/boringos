@@ -1,6 +1,6 @@
 # @boringos/db
 
-Database schema and connection management for BoringOS. Drizzle ORM with embedded Postgres for zero-config development.
+Database schema and connection management for BoringOS. Drizzle ORM with Postgres. External Postgres is the production path; embedded Postgres ships as a zero-config dev fallback.
 
 ## Install
 
@@ -10,28 +10,54 @@ npm install @boringos/db
 
 ## Usage
 
+### External Postgres (production)
+
+Set `DATABASE_URL` and BoringOS picks it up automatically at boot. You can also pass it explicitly:
+
 ```typescript
 import { createDatabase, createMigrationManager } from "@boringos/db";
 
-// Embedded Postgres (zero-config, data in .data/postgres)
-const { db, close } = await createDatabase({});
-
-// External Postgres
 const { db, close } = await createDatabase({
-  url: "postgres://user:pass@localhost:5432/mydb",
+  url: process.env.DATABASE_URL!,
 });
 
-// Run migrations (creates all 17 framework tables)
 const migrator = createMigrationManager(db);
-await migrator.bootstrap();
+await migrator.apply();
+```
 
-// Use Drizzle ORM directly
+The database must already exist. BoringOS does not create it. Run this once:
+
+```bash
+psql -c "CREATE DATABASE boringos;" postgres://user:pass@host:5432/postgres
+```
+
+### Embedded Postgres (dev only)
+
+Zero-config, data stored in `.data/postgres`. Starts automatically when no `DATABASE_URL` is set.
+
+```typescript
+const { db, close } = await createDatabase({ embedded: true });
+```
+
+### Use Drizzle ORM directly
+
+```typescript
 import { agents, tasks } from "@boringos/db";
 const allAgents = await db.select().from(agents);
-
-// Shut down
 await close();
 ```
+
+## Connection poolers (Supabase, pgBouncer in transaction mode)
+
+Add `prepare: false` to your connection string or pass it via the `postgres()` options. Transaction-mode poolers do not support prepared statements.
+
+```
+postgres://user:pass@host:5432/db?prepare=false
+```
+
+## Postgres version
+
+Postgres 15 or newer is required (`gen_random_uuid()` is a built-in).
 
 ## API Reference
 
@@ -39,14 +65,12 @@ await close();
 
 | Export | Description |
 |---|---|
-| `createDatabase(config)` | Boot embedded Postgres or connect to external URL |
-| `createMigrationManager(db)` | Schema bootstrap via DDL |
+| `createDatabase(config)` | Connect to external Postgres or start embedded dev instance |
+| `createMigrationManager(db)` | Schema bootstrap via idempotent DDL |
 
-### Schema Tables
+### Schema tables
 
-The package exports Drizzle table definitions for all 17 framework tables:
-
-`tenants`, `agents`, `tasks`, `taskComments`, `agentRuns`, `agentWakeupRequests`, `runtimes`, `costEvents`, `approvals`, `workflows`, `connectors`, `driveFiles`, `activityLog`, `budgetPolicies`, `budgetIncidents`, `routines`, `onboardingState`
+`tenants`, `agents`, `tasks`, `taskComments`, `agentRuns`, `agentWakeupRequests`, `runtimes`, `costEvents`, `workflows`, `connectors`, `driveFiles`, `activityLog`, `budgetPolicies`, `budgetIncidents`, `routines`, `onboardingState`
 
 All tables include `tenantId` for multi-tenant scoping.
 

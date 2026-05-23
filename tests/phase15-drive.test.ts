@@ -5,6 +5,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { testDbConfig } from "./_helpers.js";
 
 const KEY = "drive-admin";
 
@@ -16,7 +17,7 @@ describe("drive features", () => {
 
     const d = await mkdtemp(join(tmpdir(), "boringos-drive-"));
     const server = await new BoringOS({
-      database: { embedded: true, dataDir: d, port: 5575 },
+      database: testDbConfig(d, 5575),
       drive: { root: join(d, "drive") },
       auth: { secret: "s", adminKey: KEY },
     }).listen(0);
@@ -58,7 +59,7 @@ describe("drive features", () => {
     const { eq } = await import("drizzle-orm");
 
     const d = await mkdtemp(join(tmpdir(), "boringos-drvmgr-"));
-    const conn = await createDatabase({ embedded: true, dataDir: join(d, "pg"), port: 5574 });
+    const conn = await createDatabase(testDbConfig(join(d, "pg"), 5574));
     await createMigrationManager(conn.db).apply();
 
     const { tenants } = await import("@boringos/db");

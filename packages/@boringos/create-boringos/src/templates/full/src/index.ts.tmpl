@@ -18,8 +18,8 @@ const companyKnowledge: ContextProvider = {
 // ── Build the app ───────────────────────────────────────────────────────────
 
 const app = new BoringOS({
-  // database: { url: process.env.DATABASE_URL! },  // uncomment for external Postgres
   // auth: { secret: process.env.AUTH_SECRET! },
+  // DATABASE_URL env var selects external Postgres; embedded PG is the dev fallback
 });
 
 // Memory — cognitive recall for agents

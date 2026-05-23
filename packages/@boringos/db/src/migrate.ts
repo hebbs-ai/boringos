@@ -21,8 +21,17 @@ export function createMigrationManager(db: Db): MigrationManager {
 }
 
 async function ensureSchema(db: Db): Promise<void> {
-  // Create all framework tables using raw SQL DDL.
-  // This is the bootstrap path — creates tables if they don't exist.
+  // Serialize concurrent migration runs across processes sharing the same DB.
+  // The lock id is a stable hash of "boringos-migrate" (arbitrary but fixed).
+  await db.execute(sql`SELECT pg_advisory_lock(727363677)`);
+  try {
+    await _applySchema(db);
+  } finally {
+    await db.execute(sql`SELECT pg_advisory_unlock(727363677)`);
+  }
+}
+
+async function _applySchema(db: Db): Promise<void> {
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS tenants (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

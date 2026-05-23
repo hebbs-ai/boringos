@@ -409,7 +409,18 @@ export class BoringOS {
     const listenPort = port ?? 3000;
 
     // 1. Boot database
-    const dbConfig = this.config.database ?? { embedded: true as const };
+    const dbConfig: import("@boringos/db").DatabaseConfig = (() => {
+      if (this.config.database) return this.config.database;
+      const flag = process.env.PG_EMBEDDED;
+      if (flag === "true") return { embedded: true as const };
+      if (flag === "false") {
+        if (!process.env.DATABASE_URL)
+          throw new Error("PG_EMBEDDED=false requires DATABASE_URL to be set.");
+        return { url: process.env.DATABASE_URL };
+      }
+      if (process.env.DATABASE_URL) return { url: process.env.DATABASE_URL };
+      return { embedded: true as const };
+    })();
     const dbConn = await createDatabase(dbConfig);
 
     // 2. Run migrations
@@ -1134,7 +1145,7 @@ export class BoringOS {
 
       // Auto-create Chief of Staff and Copilot for existing first tenant (backward compat)
       const { tenants: tenantsTable, agents: agentsTable } = await import("@boringos/db");
-      const { eq, and } = await import("drizzle-orm");
+      const { eq, and, isNull } = await import("drizzle-orm");
       const tenantRows = await dbConn.db.select().from(tenantsTable).limit(1);
       const firstTenant = tenantRows[0];
 
@@ -1158,9 +1169,18 @@ export class BoringOS {
           ),
         ).limit(1);
 
+        // Check for any existing root agent — the unique index only allows one
+        // agent with reports_to IS NULL per tenant, so we must not create a CoS
+        // when another role (e.g. the quickstart's "engineer") already occupies
+        // the root slot.
+        const existingRootAgent = await dbConn.db.select({ id: agentsTable.id })
+          .from(agentsTable)
+          .where(and(eq(agentsTable.tenantId, firstTenantId), isNull(agentsTable.reportsTo)))
+          .limit(1);
+
         let cosId = existingCoS[0]?.id;
-        if (!cosId && runtimeId) {
-          // Create CoS if missing
+        if (!cosId && runtimeId && existingRootAgent.length === 0) {
+          // Create CoS only when the tenant has no root agent at all
           const cosResult = await createAgentFromTemplate(dbConn.db, "chief-of-staff", {
             tenantId: firstTenantId,
             name: "Chief of Staff",
@@ -1184,7 +1204,7 @@ export class BoringOS {
           ),
         ).limit(1);
 
-        if (existingCopilot.length === 0 && runtimeId) {
+        if (existingCopilot.length === 0 && runtimeId && cosId) {
           // Create Copilot under CoS
           await createAgentFromTemplate(dbConn.db, "copilot", {
             tenantId: firstTenantId,

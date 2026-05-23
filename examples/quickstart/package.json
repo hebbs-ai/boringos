@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "npx tsx index.ts"
+    "start": "npx tsx --env-file=../../.env index.ts"
   },
   "dependencies": {
     "@boringos/core": "workspace:*",

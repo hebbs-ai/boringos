@@ -14,7 +14,15 @@ export interface DatabaseConnection {
 
 export async function createDatabase(config: DatabaseConfig): Promise<DatabaseConnection> {
   if ("url" in config) {
-    const client = postgres(config.url);
+    const client = postgres(config.url, { onnotice: () => {} });
+    try {
+      await client`select 1`;
+    } catch (err) {
+      throw new Error(
+        `Could not connect to DATABASE_URL: ${err instanceof Error ? err.message : String(err)}. ` +
+          `Ensure the database exists and the connection string is correct.`
+      );
+    }
     const db = drizzle(client, { schema });
     return {
       db,
@@ -24,8 +32,16 @@ export async function createDatabase(config: DatabaseConfig): Promise<DatabaseCo
     };
   }
 
-  // Embedded Postgres
-  const EmbeddedPostgres = (await import("embedded-postgres")).default;
+  // Embedded Postgres (optional dep -- not available in production installs)
+  const EmbeddedPostgres = await import("embedded-postgres").then(
+    (m) => m.default,
+    () => {
+      throw new Error(
+        "embedded-postgres is not installed. Set DATABASE_URL to use an external Postgres instance, " +
+          "or install embedded-postgres: npm install embedded-postgres"
+      );
+    }
+  );
   const dataDir = config.dataDir ?? "./.data/postgres";
   const port = config.port ?? 5433;
 

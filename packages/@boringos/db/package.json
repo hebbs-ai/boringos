@@ -18,7 +18,9 @@
   "dependencies": {
     "@boringos/shared": "workspace:*",
     "drizzle-orm": "^0.41.0",
-    "postgres": "^3.4.5",
+    "postgres": "^3.4.5"
+  },
+  "optionalDependencies": {
     "embedded-postgres": "^18.1.0-beta.16"
   },
   "devDependencies": {
@@ -26,7 +28,7 @@
     "drizzle-kit": "^0.30.0",
     "typescript": "^5.7.3"
   },
-  "description": "Database schema + embedded Postgres + migration manager",
+  "description": "Database schema + migration manager for BoringOS (external Postgres; embedded dev fallback optional)",
   "repository": {
     "type": "git",
     "url": "https://github.com/BoringOS-dev/boringos.git"

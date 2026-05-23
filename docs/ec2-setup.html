@@ -1,0 +1,1004 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BoringOS — EC2 Setup Guide</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #ffffff;
+      --bg-subtle: #f8f9fa;
+      --border: #e2e8f0;
+      --text: #1a202c;
+      --text-muted: #64748b;
+      --accent: #3b82f6;
+      --code-bg: #1e293b;
+      --code-text: #e2e8f0;
+      --warning-bg: #fef3c7;
+      --warning-border: #f59e0b;
+      --note-bg: #eff6ff;
+      --note-border: #3b82f6;
+      --success-bg: #f0fdf4;
+      --success-border: #10b981;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.7;
+      font-size: 16px;
+    }
+
+    .wrapper {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 0 24px 80px;
+    }
+
+    /* ── Header ─────────────────────────────────────────────────────────────── */
+
+    header {
+      padding: 52px 0 40px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 44px;
+    }
+
+    .badge {
+      display: inline-block;
+      background: #dbeafe;
+      color: #1d4ed8;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .6px;
+      text-transform: uppercase;
+      padding: 3px 11px;
+      border-radius: 99px;
+      margin-bottom: 16px;
+    }
+
+    h1 {
+      font-size: 2.4rem;
+      font-weight: 800;
+      line-height: 1.15;
+      color: #0f172a;
+      margin-bottom: 14px;
+      letter-spacing: -.5px;
+    }
+
+    .subtitle {
+      font-size: 1.05rem;
+      color: var(--text-muted);
+      max-width: 580px;
+      line-height: 1.65;
+    }
+
+    .meta-pills {
+      margin-top: 20px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .pill {
+      background: var(--bg-subtle);
+      border: 1px solid var(--border);
+      border-radius: 99px;
+      font-size: 12px;
+      color: var(--text-muted);
+      padding: 3px 12px;
+      font-weight: 500;
+    }
+
+    /* ── TOC ────────────────────────────────────────────────────────────────── */
+
+    .toc {
+      background: var(--bg-subtle);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 22px 26px;
+      margin-bottom: 52px;
+    }
+
+    .toc-title {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 14px;
+    }
+
+    .toc ol {
+      list-style: none;
+      counter-reset: toc;
+      column-count: 2;
+      column-gap: 32px;
+    }
+
+    .toc li {
+      counter-increment: toc;
+      padding: 4px 0;
+      break-inside: avoid;
+    }
+
+    .toc li::before {
+      content: counter(toc) ".";
+      color: var(--accent);
+      font-weight: 700;
+      font-size: 12px;
+      margin-right: 7px;
+    }
+
+    .toc a {
+      color: var(--text);
+      text-decoration: none;
+      font-size: 14px;
+    }
+
+    .toc a:hover { color: var(--accent); }
+
+    /* ── Sections ───────────────────────────────────────────────────────────── */
+
+    section {
+      margin-bottom: 60px;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    .step-num {
+      flex-shrink: 0;
+      width: 34px;
+      height: 34px;
+      background: var(--accent);
+      color: #fff;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 14px;
+      margin-top: 3px;
+    }
+
+    h2 {
+      font-size: 1.45rem;
+      font-weight: 700;
+      color: #0f172a;
+      line-height: 1.3;
+      letter-spacing: -.3px;
+    }
+
+    h3 {
+      font-size: .95rem;
+      font-weight: 600;
+      color: #0f172a;
+      margin: 24px 0 8px;
+      text-transform: uppercase;
+      letter-spacing: .4px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    p {
+      margin-bottom: 14px;
+      color: #374151;
+    }
+
+    /* ── Code blocks ────────────────────────────────────────────────────────── */
+
+    .code-block {
+      margin: 16px 0;
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid #1e293b;
+    }
+
+    .code-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #0f172a;
+      padding: 7px 14px;
+    }
+
+    .code-label-text {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: .5px;
+      text-transform: uppercase;
+      color: #475569;
+    }
+
+    .copy-btn {
+      background: none;
+      border: 1px solid #334155;
+      color: #64748b;
+      font-size: 11px;
+      padding: 2px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: color .15s, border-color .15s, background .15s;
+    }
+
+    .copy-btn:hover { background: #1e293b; color: #e2e8f0; border-color: #475569; }
+    .copy-btn.copied { border-color: #10b981; color: #10b981; }
+
+    pre {
+      background: var(--code-bg);
+      color: var(--code-text);
+      padding: 18px 20px;
+      overflow-x: auto;
+      font-size: 13px;
+      line-height: 1.85;
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', Consolas, 'Liberation Mono', monospace;
+    }
+
+    code {
+      background: #f1f5f9;
+      color: #0f172a;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 13px;
+      font-family: 'SF Mono', 'Fira Code', Consolas, monospace;
+    }
+
+    pre code {
+      background: none;
+      color: inherit;
+      padding: 0;
+      font-size: inherit;
+      border-radius: 0;
+    }
+
+    .c  { color: #4b5563; }   /* comment */
+    .v  { color: #fde68a; }   /* variable / placeholder */
+    .s  { color: #86efac; }   /* string value */
+    .f  { color: #93c5fd; }   /* flag */
+
+    /* ── Callout boxes ──────────────────────────────────────────────────────── */
+
+    .callout {
+      display: flex;
+      gap: 13px;
+      padding: 14px 18px;
+      border-radius: 10px;
+      margin: 18px 0;
+      font-size: 14px;
+      line-height: 1.65;
+    }
+
+    .callout.note    { background: var(--note-bg);    border-left: 4px solid var(--note-border); }
+    .callout.warning { background: var(--warning-bg); border-left: 4px solid var(--warning-border); }
+    .callout.success { background: var(--success-bg); border-left: 4px solid var(--success-border); }
+
+    .callout-icon { font-size: 17px; flex-shrink: 0; margin-top: 1px; }
+
+    .callout strong {
+      display: block;
+      font-weight: 700;
+      margin-bottom: 3px;
+      font-size: 13px;
+    }
+
+    /* ── Tables ─────────────────────────────────────────────────────────────── */
+
+    .table-wrap { overflow-x: auto; margin: 16px 0; border-radius: 8px; border: 1px solid var(--border); }
+
+    table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+
+    th {
+      background: var(--bg-subtle);
+      text-align: left;
+      padding: 9px 14px;
+      font-weight: 700;
+      border-bottom: 1px solid var(--border);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      color: var(--text-muted);
+    }
+
+    td {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+
+    tr:last-child td { border-bottom: none; }
+    tr:nth-child(even) td { background: #fafafa; }
+
+    /* ── Checklist ──────────────────────────────────────────────────────────── */
+
+    .checklist {
+      list-style: none;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .checklist li {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .checklist li:last-child { border-bottom: none; }
+    .checklist li:nth-child(even) { background: var(--bg-subtle); }
+
+    .check-box {
+      width: 18px;
+      height: 18px;
+      border: 2px solid #cbd5e1;
+      border-radius: 4px;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    /* ── Footer ─────────────────────────────────────────────────────────────── */
+
+    footer {
+      padding: 28px 0;
+      border-top: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 13px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+<div class="wrapper">
+
+  <!-- ───────────────────── Header ───────────────────── -->
+  <header>
+    <span class="badge">Deployment Guide</span>
+    <h1>BoringOS on EC2</h1>
+    <p class="subtitle">
+      Complete setup guide for a fresh Amazon EC2 instance.
+      Covers Node 22, Docker, Postgres with persistent disk storage, and PM2 process management.
+    </p>
+    <div class="meta-pills">
+      <span class="pill">Ubuntu 22.04 / Amazon Linux 2023</span>
+      <span class="pill">Node 22</span>
+      <span class="pill">Postgres 16</span>
+      <span class="pill">Docker</span>
+      <span class="pill">PM2</span>
+    </div>
+  </header>
+
+  <!-- ───────────────────── TOC ───────────────────── -->
+  <nav class="toc" aria-label="Table of contents">
+    <div class="toc-title">Contents</div>
+    <ol>
+      <li><a href="#prerequisites">Prerequisites &amp; EC2 setup</a></li>
+      <li><a href="#node">Install Node 22</a></li>
+      <li><a href="#pnpm">Install pnpm 9</a></li>
+      <li><a href="#docker">Install Docker</a></li>
+      <li><a href="#postgres">Postgres with persistent storage</a></li>
+      <li><a href="#repo">Clone and build the repo</a></li>
+      <li><a href="#env">Environment variables</a></li>
+      <li><a href="#start">Start the server</a></li>
+      <li><a href="#pm2">Keep it running with PM2</a></li>
+      <li><a href="#checklist">Final checklist</a></li>
+    </ol>
+  </nav>
+
+  <!-- ───────────────────── 1. Prerequisites ───────────────────── -->
+  <section id="prerequisites">
+    <div class="section-header">
+      <div class="step-num">1</div>
+      <h2>Prerequisites &amp; EC2 setup</h2>
+    </div>
+
+    <p>Before SSH-ing in, make sure the instance and its Security Group are configured correctly.</p>
+
+    <h3>Recommended instance type</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Use case</th><th>Instance</th><th>RAM</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td>Development / testing</td><td>t3.small</td><td>2 GB</td><td>Tight but functional</td></tr>
+          <tr><td>Staging / light production</td><td><strong>t3.medium</strong></td><td>4 GB</td><td>Recommended minimum</td></tr>
+          <tr><td>Production</td><td>t3.large</td><td>8 GB</td><td>Comfortable headroom</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Security Group inbound rules</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Port</th><th>Source</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td>22</td><td>Your IP only</td><td>SSH</td></tr>
+          <tr><td>3000</td><td>0.0.0.0/0</td><td>BoringOS HTTP server</td></tr>
+          <tr><td>5432</td><td><strong>Do not open</strong></td><td>Postgres — stays internal to the instance</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout warning">
+      <span class="callout-icon">⚠️</span>
+      <div>
+        <strong>Never expose port 5432</strong>
+        Postgres will be bound to <code>127.0.0.1</code> inside Docker. Adding a Security Group rule for 5432 would expose your database directly to the internet.
+      </div>
+    </div>
+
+    <h3>Connect and update</h3>
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-label-text">terminal</span>
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+      </div>
+      <pre><code><span class="c"># Ubuntu</span>
+ssh -i your-key.pem ubuntu@&lt;ec2-public-ip&gt;
+
+<span class="c"># Amazon Linux</span>
+ssh -i your-key.pem ec2-user@&lt;ec2-public-ip&gt;</code></pre>
+    </div>
+
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-label-text">terminal</span>
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+      </div>
+      <pre><code><span class="c"># Ubuntu — update packages</span>
+sudo apt update && sudo apt upgrade -y
+
+<span class="c"># Amazon Linux — update packages</span>
+sudo dnf update -y</code></pre>
+    </div>
+  </section>
+
+  <!-- ───────────────────── 2. Node ───────────────────── -->
+  <section id="node">
+    <div class="section-header">
+      <div class="step-num">2</div>
+      <h2>Install Node 22</h2>
+    </div>
+
+    <p>BoringOS requires Node 22 or newer. Install via <code>nvm</code> so you can manage versions easily.</p>
+
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-label-text">terminal</span>
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+      </div>
+      <pre><code><span class="c"># Install nvm</span>
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+
+<span class="c"># Reload shell so nvm is on PATH</span>
+source ~/.bashrc
+
+<span class="c"># Install Node 22 and set it as default</span>
+nvm install 22
+nvm use 22
+nvm alias default 22
+
+<span class="c"># Verify</span>
+node --version</code></pre>
+    </div>
+
+    <div class="callout note">
+      <span class="callout-icon">ℹ️</span>
+      <div>
+        <strong>Expected output</strong>
+        <code>node --version</code> should print <code>v22.x.x</code> or higher.
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────────────── 3. pnpm ───────────────────── -->
+  <section id="pnpm">
+    <div class="section-header">
+      <div class="step-num">3</div>
+      <h2>Install pnpm 9</h2>
+    </div>
+
+    <p>BoringOS uses pnpm 9 as its workspace package manager.</p>
+
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-label-text">terminal</span>
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+      </div>
+      <pre><code>npm install -g pnpm@9
+
+<span class="c"># Verify</span>
+pnpm --version</code></pre>
+    </div>
+  </section>
+
+  <!-- ───────────────────── 4. Docker ───────────────────── -->
+  <section id="docker">
+    <div class="section-header">
+      <div class="step-num">4</div>
+      <h2>Install Docker</h2>
+    </div>
+
+    <p>Docker is used to run the Postgres database in an isolated, manageable container. Follow the steps for your OS.</p>
+
+    <h3>Ubuntu 22.04</h3>
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-label-text">terminal — Ubuntu</span>
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+      </div>
+      <pre><code><span class="c"># Install prerequisites</span>
+sudo apt install -y ca-certificates curl gnupg
+sudo install -m 0755 -d /etc/apt/keyrings
+
+<span class="c"># Add Docker's official GPG key</span>
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+  | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+<span class="c"># Add Docker repository</span>
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+  https://download.docker.com/linux/ubuntu \
+  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+  | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+<span class="c"># Install Docker</span>
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io
+
+<span class="c"># Enable and start Docker service</span>
+sudo systemctl enable --now docker
+
+<span class="c"># Allow your user to run Docker without sudo</span>
+sudo usermod -aG docker $USER
+newgrp docker
+
+<span class="c"># Verify</span>
+docker --version
+docker run --rm hello-world</code></pre>
+    </div>
+
+    <h3>Amazon Linux 2023</h3>
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-label-text">terminal — Amazon Linux</span>
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+      </div>
+      <pre><code>sudo dnf install -y docker
+sudo systemctl enable --now docker
+sudo usermod -aG docker $USER
+newgrp docker
+
+<span class="c"># Verify</span>
+docker --version
+docker run --rm hello-world</code></pre>
+    </div>
+
+    <div class="callout success">
+      <span class="callout-icon">✅</span>
+      <div>
+        <strong>Confirm Docker works</strong>
+        <code>docker run --rm hello-world</code> should print "Hello from Docker!" If you see a permission error, log out and back in so the group change takes effect.
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────────────── 5. Postgres ───────────────────── -->
+  <section id="postgres">
+    <div class="section-header">
+      <div class="step-num">5</div>
+      <h2>Postgres with persistent storage</h2>
+    </div>
+
+    <p>
+      Postgres runs as a Docker container. Its data is stored in a named Docker volume
+      (<code>boringos-pgdata</code>) which lives on the EC2 instance's disk and persists
+      independently of the container lifecycle.
+    </p>
+
+    <h3>Step 1 — Create the volume</h3>
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-label-text">terminal</span>
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+      </div>
+      <pre><code>docker volume create boringos-pgdata
+
+<span class="c"># See where Docker stores it on the host disk</span>
+docker volume inspect boringos-pgdata</code></pre>
+    </div>
+
+    <h3>Step 2 — Start the container</h3>
+    <p>Replace <code>YOUR_STRONG_PASSWORD</code> with a real password before running. You will need it again in the next section.</p>
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-label-text">terminal</span>
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+      </div>
+      <pre><code>docker run -d \
+  --name boringos-pg \
+  --restart unless-stopped \
+  -e POSTGRES_USER=boringos \
+  -e <span class="v">POSTGRES_PASSWORD=YOUR_STRONG_PASSWORD</span> \
+  -e POSTGRES_DB=boringos \
+  -v boringos-pgdata:/var/lib/postgresql/data \
+  -p 127.0.0.1:5432:5432 \
+  postgres:16</code></pre>
+    </div>
+
+    <div class="callout note">
+      <span class="callout-icon">ℹ️</span>
+      <div>
+        <strong>Why <code>127.0.0.1:5432</code> and not just <code>5432</code>?</strong>
+        Binding to <code>127.0.0.1</code> restricts connections to processes on this machine only. Binding to <code>0.0.0.0:5432</code> would expose Postgres to the public internet even if a Security Group rule were accidentally added.
+      </div>
+    </div>
+
+    <h3>Step 3 — Verify it is ready</h3>
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-label-text">terminal</span>
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+      </div>
+      <pre><code><span class="c"># Should print: /var/run/postgresql:5432 - accepting connections</span>
+docker exec boringos-pg pg_isready -U boringos
+
+<span class="c"># Confirm container is Up</span>
+docker ps</code></pre>
+    </div>
+
+    <div class="callout success">
+      <span class="callout-icon">✅</span>
+      <div>
+        <strong>Expected: "accepting connections"</strong>
+        If you see "no response" or an error, wait 5 seconds and retry. The container takes a moment to initialize on first boot.
+      </div>
+    </div>
+
+    <h3>Persistence summary</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Action taken</th><th>Data survives?</th></tr></thead>
+        <tbody>
+          <tr><td><code>docker restart boringos-pg</code></td><td>Yes</td></tr>
+          <tr><td><code>docker stop</code> then <code>docker start</code></td><td>Yes</td></tr>
+          <tr><td><code>docker rm boringos-pg</code> then recreate with same <code>-v</code></td><td>Yes</td></tr>
+          <tr><td>EC2 reboot (<code>sudo reboot</code>)</td><td>Yes — Docker auto-restarts the container</td></tr>
+          <tr><td><code>docker volume rm boringos-pgdata</code></td><td>No — this deletes the volume</td></tr>
+          <tr><td>EC2 instance terminated</td><td>No — root EBS volume is gone</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout warning">
+      <span class="callout-icon">⚠️</span>
+      <div>
+        <strong>For true production durability</strong>
+        Attach a separate EBS volume, mount it at <code>/data</code>, and use a bind mount
+        (<code>-v /data/postgres:/var/lib/postgresql/data</code>) instead of a named volume.
+        That way the data survives full EC2 replacement — just reattach the EBS volume to a new instance.
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────────────── 6. Repo ───────────────────── -->
+  <section id="repo">
+    <div class="section-header">
+      <div class="step-num">6</div>
+      <h2>Clone and build the repo</h2>
+    </div>
+
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-label-text">terminal</span>
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+      </div>
+      <pre><code><span class="c"># Install git if not already present</span>
+sudo apt install -y git          <span class="c"># Ubuntu</span>
+sudo dnf install -y git          <span class="c"># Amazon Linux</span>
+
+<span class="c"># Clone</span>
+git clone <span class="v">&lt;your-repo-url&gt;</span>
+cd boringos
+
+<span class="c"># Install all workspace dependencies</span>
+pnpm install
+
+<span class="c"># Compile TypeScript for every package in the monorepo</span>
+pnpm -r build</code></pre>
+    </div>
+
+    <div class="callout note">
+      <span class="callout-icon">ℹ️</span>
+      <div>
+        <strong>Build time</strong>
+        The first build takes 1–2 minutes. It compiles TypeScript for every package in the monorepo. Subsequent builds are faster because of incremental compilation.
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────────────── 7. Env vars ───────────────────── -->
+  <section id="env">
+    <div class="section-header">
+      <div class="step-num">7</div>
+      <h2>Environment variables</h2>
+    </div>
+
+    <p>Create an <code>.env</code> file in the quickstart directory. This keeps secrets out of your shell history.</p>
+
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-label-text">terminal</span>
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+      </div>
+      <pre><code>cd examples/quickstart
+
+cat > .env << 'EOF'
+DATABASE_URL=postgres://boringos:<span class="v">YOUR_STRONG_PASSWORD</span>@127.0.0.1:5432/boringos
+PG_EMBEDDED=false
+NODE_ENV=production
+PORT=3000
+AUTH_SECRET=<span class="v">REPLACE_AFTER_RUNNING_COMMAND_BELOW</span>
+EOF</code></pre>
+    </div>
+
+    <p>Generate a secure value for <code>AUTH_SECRET</code>:</p>
+
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-label-text">terminal</span>
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+      </div>
+      <pre><code>openssl rand -hex 32</code></pre>
+    </div>
+
+    <p>Copy the output and paste it as the value for <code>AUTH_SECRET</code> in your <code>.env</code> file.</p>
+
+    <div class="callout warning">
+      <span class="callout-icon">⚠️</span>
+      <div>
+        <strong>Save AUTH_SECRET somewhere safe</strong>
+        If the server restarts without this value, all existing login sessions are invalidated.
+        Store it in AWS Secrets Manager or SSM Parameter Store for anything beyond a one-off setup.
+      </div>
+    </div>
+
+    <h3>Variable reference</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Variable</th><th>Required</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>DATABASE_URL</code></td><td>Yes</td><td>Postgres connection string</td></tr>
+          <tr><td><code>PG_EMBEDDED</code></td><td>Yes</td><td><code>false</code> forces external Postgres; <code>true</code> forces embedded; unset = auto</td></tr>
+          <tr><td><code>NODE_ENV</code></td><td>Recommended</td><td>Set to <code>production</code></td></tr>
+          <tr><td><code>PORT</code></td><td>No</td><td>HTTP port, default <code>3000</code></td></tr>
+          <tr><td><code>AUTH_SECRET</code></td><td>Recommended</td><td>Signs session tokens; random on each boot if not set</td></tr>
+          <tr><td><code>RESEND_API_KEY</code></td><td>No</td><td>Enables email notifications</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ───────────────────── 8. Start ───────────────────── -->
+  <section id="start">
+    <div class="section-header">
+      <div class="step-num">8</div>
+      <h2>Start the server</h2>
+    </div>
+
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-label-text">terminal</span>
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+      </div>
+      <pre><code>cd examples/quickstart
+
+<span class="c"># Load .env into the current shell session</span>
+set -a && source .env && set +a
+
+pnpm start</code></pre>
+    </div>
+
+    <p>
+      On first boot, BoringOS connects to Postgres and runs all schema migrations automatically.
+      All tables are created with <code>IF NOT EXISTS</code> guards — safe to run repeatedly.
+    </p>
+
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-label-text">expected output</span>
+      </div>
+      <pre><code>BoringOS running at http://localhost:3000
+Health: http://localhost:3000/health</code></pre>
+    </div>
+
+    <p>Confirm from another terminal (or from your local machine using the public IP):</p>
+
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-label-text">terminal</span>
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+      </div>
+      <pre><code><span class="c"># From the EC2 instance</span>
+curl http://localhost:3000/health
+
+<span class="c"># From your local machine</span>
+curl http://&lt;ec2-public-ip&gt;:3000/health</code></pre>
+    </div>
+
+    <div class="callout success">
+      <span class="callout-icon">✅</span>
+      <div>
+        <strong>Expecting <code>{"status":"ok"}</code></strong>
+        Any other response: check server logs for errors, confirm Postgres is ready with
+        <code>docker exec boringos-pg pg_isready -U boringos</code>, and verify <code>PG_EMBEDDED=false</code>
+        and <code>DATABASE_URL</code> are both set correctly.
+      </div>
+    </div>
+  </section>
+
+  <!-- ───────────────────── 9. PM2 ───────────────────── -->
+  <section id="pm2">
+    <div class="section-header">
+      <div class="step-num">9</div>
+      <h2>Keep it running with PM2</h2>
+    </div>
+
+    <p>
+      PM2 is a process manager that keeps BoringOS alive after you disconnect from SSH,
+      restarts it automatically on crashes, and hooks into the system startup so it comes back after a reboot.
+    </p>
+
+    <h3>Install PM2</h3>
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-label-text">terminal</span>
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+      </div>
+      <pre><code>npm install -g pm2</code></pre>
+    </div>
+
+    <h3>Create an ecosystem config</h3>
+    <p>This tells PM2 where the app lives and which <code>.env</code> file to load.</p>
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-label-text">examples/quickstart/ecosystem.config.cjs</span>
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+      </div>
+      <pre><code>module.exports = {
+  apps: [{
+    name: <span class="s">"boringos"</span>,
+    script: <span class="s">"pnpm"</span>,
+    args: <span class="s">"start"</span>,
+    cwd: <span class="v">"/home/ubuntu/boringos/examples/quickstart"</span>,
+    env_file: <span class="s">".env"</span>,
+    restart_delay: 3000,
+    max_restarts: 10,
+    log_date_format: <span class="s">"YYYY-MM-DD HH:mm:ss"</span>,
+  }]
+};</code></pre>
+    </div>
+
+    <div class="callout note">
+      <span class="callout-icon">ℹ️</span>
+      <div>
+        <strong>Update <code>cwd</code> if your username is not <code>ubuntu</code></strong>
+        Amazon Linux uses <code>ec2-user</code>, so the path would be <code>/home/ec2-user/boringos/...</code>
+      </div>
+    </div>
+
+    <h3>Start and configure auto-restart on reboot</h3>
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-label-text">terminal</span>
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+      </div>
+      <pre><code>cd examples/quickstart
+
+<span class="c"># Start the app</span>
+pm2 start ecosystem.config.cjs
+
+<span class="c"># Save the current process list</span>
+pm2 save
+
+<span class="c"># Generate the startup script</span>
+pm2 startup
+<span class="c"># Copy and run the command it prints (starts with "sudo env PATH=...")</span></code></pre>
+    </div>
+
+    <div class="callout warning">
+      <span class="callout-icon">⚠️</span>
+      <div>
+        <strong>Run the command PM2 prints</strong>
+        <code>pm2 startup</code> prints a <code>sudo env PATH=...</code> command. You must copy and run
+        that exact command — it registers the PM2 daemon with systemd so it starts on reboot.
+      </div>
+    </div>
+
+    <h3>Useful commands</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td><code>pm2 logs boringos</code></td><td>Stream live application logs</td></tr>
+          <tr><td><code>pm2 status</code></td><td>Show all running processes and their state</td></tr>
+          <tr><td><code>pm2 restart boringos</code></td><td>Restart the server (picks up new code after a rebuild)</td></tr>
+          <tr><td><code>pm2 stop boringos</code></td><td>Stop without removing from PM2 list</td></tr>
+          <tr><td><code>pm2 delete boringos</code></td><td>Remove completely from PM2</td></tr>
+          <tr><td><code>pm2 monit</code></td><td>Live dashboard with CPU and memory usage</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Test a reboot</h3>
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-label-text">terminal</span>
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+      </div>
+      <pre><code>sudo reboot</code></pre>
+    </div>
+
+    <p>After reconnecting, verify everything came back:</p>
+
+    <div class="code-block">
+      <div class="code-header">
+        <span class="code-label-text">terminal</span>
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+      </div>
+      <pre><code>docker ps                                         <span class="c"># boringos-pg should be Up</span>
+pm2 status                                        <span class="c"># boringos should be online</span>
+curl http://localhost:3000/health                  <span class="c"># should return {"status":"ok"}</span></code></pre>
+    </div>
+  </section>
+
+  <!-- ───────────────────── 10. Checklist ───────────────────── -->
+  <section id="checklist">
+    <div class="section-header">
+      <div class="step-num">10</div>
+      <h2>Final checklist</h2>
+    </div>
+
+    <ul class="checklist">
+      <li><span class="check-box"></span>EC2 Security Group: port 3000 open, port 22 from your IP only, port 5432 closed</li>
+      <li><span class="check-box"></span>Node 22 installed — <code>node --version</code> prints <code>v22.x.x</code></li>
+      <li><span class="check-box"></span>pnpm 9 installed — <code>pnpm --version</code> prints <code>9.x.x</code></li>
+      <li><span class="check-box"></span>Docker running — <code>docker ps</code> works without <code>sudo</code></li>
+      <li><span class="check-box"></span>Postgres container is Up — <code>docker ps</code> shows <code>boringos-pg</code></li>
+      <li><span class="check-box"></span>Postgres volume exists — <code>docker volume inspect boringos-pgdata</code> succeeds</li>
+      <li><span class="check-box"></span><code>pg_isready</code> returns "accepting connections"</li>
+      <li><span class="check-box"></span><code>PG_EMBEDDED=false</code> is set in <code>.env</code></li>
+      <li><span class="check-box"></span><code>DATABASE_URL</code> uses your real password, not the placeholder</li>
+      <li><span class="check-box"></span><code>AUTH_SECRET</code> is set and saved somewhere safe (SSM / Secrets Manager)</li>
+      <li><span class="check-box"></span><code>curl http://localhost:3000/health</code> returns <code>{"status":"ok"}</code></li>
+      <li><span class="check-box"></span>PM2 startup hook registered — <code>pm2 startup</code> command was run</li>
+      <li><span class="check-box"></span>Reboot test passed: server and Postgres both came back automatically</li>
+    </ul>
+  </section>
+
+  <footer>
+    BoringOS EC2 Setup Guide
+  </footer>
+
+</div>
+<script>
+  function copyCode(btn) {
+    const pre = btn.closest('.code-block').querySelector('pre');
+    navigator.clipboard.writeText(pre.innerText).then(() => {
+      btn.textContent = 'Copied!';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+    });
+  }
+</script>
+</body>
+</html>

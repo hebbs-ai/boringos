@@ -33,9 +33,13 @@ if (!process.env.HEBBS_DEV_MODULES) {
   process.env.HEBBS_DEV_MODULES = "true";
 }
 
+const useExternal = process.env.PG_EMBEDDED === "false" && process.env.DATABASE_URL;
+const database = useExternal ? undefined : { embedded: true, port: pgPort };
+
 const app = new BoringOS({
-  database: { embedded: true, port: pgPort },
+  ...(database ? { database } : {}),
   shellOrigin,
+  auth: { secret: process.env.AUTH_SECRET ?? "boringos-dev-secret" },
   // Each queue slot spawns its own claude subprocess; 5 = ~5x burst
   // throughput. Tune per-box; production should profile.
   queue: { concurrency: 5 },

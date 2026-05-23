@@ -1,8 +1,8 @@
 import { BoringOS } from "@boringos/core";
 
 const app = new BoringOS({
-  // database: { url: "postgres://..." },  // uncomment for external Postgres
-  // auth: { secret: "your-secret" },      // set in production
+  // auth: { secret: "your-secret" },  // set in production
+  // DATABASE_URL env var selects external Postgres; embedded PG is the dev fallback
 });
 
 // app.memory(createHebbsMemory({ endpoint: "...", apiKey: "..." }));

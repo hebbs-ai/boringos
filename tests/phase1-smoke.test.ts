@@ -5,6 +5,7 @@
  * Each phase adds tests — they accumulate and never get removed.
  */
 import { describe, it, expect } from "vitest";
+import { testDbConfig } from "./_helpers.js";
 
 // ── Step 1: @boringos/shared ──────────────────────────────────────────────
 
@@ -221,7 +222,7 @@ describe("@boringos/db", () => {
     const { join } = await import("node:path");
 
     const dataDir = await mkdtemp(join(tmpdir(), "boringos-pg-"));
-    const conn = await createDatabase({ embedded: true, dataDir, port: 5599 });
+    const conn = await createDatabase(testDbConfig(dataDir, 5599));
 
     try {
       // Apply migrations
@@ -310,7 +311,7 @@ describe("@boringos/core", () => {
     const dataDir = await mkdtemp(join(tmpdir(), "boringos-smoke-"));
 
     const app = new BoringOS({
-      database: { embedded: true, dataDir, port: 5598 },
+      database: testDbConfig(dataDir, 5598),
       drive: { root: join(dataDir, "drive") },
     });
 

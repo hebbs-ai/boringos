@@ -57,6 +57,15 @@ export const tasks = pgTable(
      * sessions, no shared transcripts.
      */
     sessionId: text("session_id"),
+    /**
+     * Which runtime created the session in `sessionId`. Sessions are
+     * runtime-specific — a Claude session id cannot be resumed by pi
+     * (and vice versa). The engine only resumes when this matches the
+     * agent's current runtime type; otherwise it starts a fresh session
+     * (no false "resuming session X"). NULL = legacy ⇒ treated as
+     * "claude". See docs/pi-runtime-integration.md.
+     */
+    sessionRuntimeType: text("session_runtime_type"),
     requestDepth: integer("request_depth").notNull().default(0),
     startedAt: timestamp("started_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),

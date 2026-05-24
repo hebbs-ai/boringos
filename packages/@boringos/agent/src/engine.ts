@@ -34,6 +34,7 @@ import type {
   RecoverPendingResult,
 } from "./types.js";
 import { ContextPipeline } from "./context-pipeline.js";
+import { resolveResumableSessionId } from "./session-scope.js";
 import { signCallbackToken } from "./jwt.js";
 import { createWakeup } from "./wakeup.js";
 import { createRunLifecycle } from "./run-lifecycle.js";
@@ -178,12 +179,46 @@ export function createAgentEngine(config: AgentEngineConfig): AgentEngine {
       });
       return;
     }
+    // Resolve the agent's runtime up-front — we need its type to gate
+    // session resume below (a session belongs to the runtime that
+    // created it). Defaults to claude when the agent has no runtimeId.
+    let runtimeType = "claude";
+    let runtimeConfig: Record<string, unknown> = {};
+    if (agent.runtimeId) {
+      try {
+        const { runtimes: runtimesTable } = await import("@boringos/db");
+        const rtRows = await db.select().from(runtimesTable).where(eq(runtimesTable.id, agent.runtimeId)).limit(1);
+        if (rtRows[0]) {
+          runtimeType = rtRows[0].type;
+          runtimeConfig = (rtRows[0].config as Record<string, unknown>) ?? {};
+          if (rtRows[0].model && !runtimeConfig.model) {
+            runtimeConfig.model = rtRows[0].model;
+          }
+        }
+      } catch {
+        // DB unavailable (e.g. a shutdown race) — fall back to defaults.
+        // This lookup runs before the main try/catch; without this guard a
+        // rejected query during teardown surfaces as an unhandled rejection.
+      }
+    }
+    // Per-agent model override wins over runtime defaults.
+    const agentModel = (agent as { model?: string | null }).model;
+    if (agentModel) runtimeConfig.model = agentModel;
+
     const taskRows = await db
-      .select({ sessionId: tasks.sessionId, originKind: tasks.originKind })
+      .select({ sessionId: tasks.sessionId, sessionRuntimeType: tasks.sessionRuntimeType, originKind: tasks.originKind })
       .from(tasks)
       .where(eq(tasks.id, job.taskId))
       .limit(1);
-    const previousSessionId = taskRows[0]?.sessionId ?? undefined;
+    // Runtime-scoped sessions (zero-migration runtime switch): only resume
+    // a stored session if it was created by the agent's CURRENT runtime.
+    // A foreign session (e.g. a Claude session id on an agent now running
+    // pi) is ignored → fresh session, no false "resuming session X".
+    const previousSessionId = resolveResumableSessionId(
+      taskRows[0]?.sessionId,
+      taskRows[0]?.sessionRuntimeType as string | null | undefined,
+      runtimeType,
+    );
     const taskOriginKind = taskRows[0]?.originKind ?? undefined;
 
     // task_23 — resolve wake-context (who is this run for) and
@@ -284,23 +319,8 @@ export function createAgentEngine(config: AgentEngineConfig): AgentEngine {
 
     const { systemInstructions, contextMarkdown } = await pipeline.build(contextEvent);
 
-    // Resolve runtime — look up from DB if agent has a runtimeId, else default to claude
-    let runtimeType = "claude";
-    let runtimeConfig: Record<string, unknown> = {};
-    if (agent.runtimeId) {
-      const { runtimes: runtimesTable } = await import("@boringos/db");
-      const rtRows = await db.select().from(runtimesTable).where(eq(runtimesTable.id, agent.runtimeId)).limit(1);
-      if (rtRows[0]) {
-        runtimeType = rtRows[0].type;
-        runtimeConfig = (rtRows[0].config as Record<string, unknown>) ?? {};
-        if (rtRows[0].model && !runtimeConfig.model) {
-          runtimeConfig.model = rtRows[0].model;
-        }
-      }
-    }
-    // Per-agent model override wins over runtime defaults.
-    const agentModel = (agent as { model?: string | null }).model;
-    if (agentModel) runtimeConfig.model = agentModel;
+    // Runtime (type + config) already resolved up-front, before the
+    // session-scope gate. Just look up the implementation here.
     const runtime = runtimes.get(runtimeType);
     if (!runtime) {
       await lifecycle.updateStatus(runId, "failed", { error: `No runtime found for type: ${runtimeType}` });
@@ -334,10 +354,14 @@ export function createAgentEngine(config: AgentEngineConfig): AgentEngine {
         }).catch(() => {});
       },
       onComplete(result) {
+        // Best-effort, fire-and-forget: the sibling writes below already
+        // guard with .catch — this one must too, or a run that finalizes
+        // after the DB connection is gone (shutdown race) throws an
+        // unhandled rejection.
         lifecycle.updateStatus(runId, result.exitCode === 0 ? "done" : "failed", {
           exitCode: result.exitCode,
           sessionId: result.sessionId,
-        });
+        }).catch(() => {});
 
         // Persist model used on the run record
         const runModel = lastModel ?? (runtimeConfig.model as string | undefined);
@@ -358,14 +382,17 @@ export function createAgentEngine(config: AgentEngineConfig): AgentEngine {
         // same task will resume from this session; wakes on any other
         // task will start fresh.
         if (result.sessionId && job.taskId) {
+          // Stamp the runtime that created this session so the next wake
+          // only resumes it when the agent still runs on the same runtime.
           db.update(tasks)
-            .set({ sessionId: result.sessionId, updatedAt: new Date() })
+            .set({ sessionId: result.sessionId, sessionRuntimeType: runtimeType, updatedAt: new Date() })
             .where(eq(tasks.id, job.taskId))
             .catch(() => {});
         }
       },
       onError(error) {
-        lifecycle.updateStatus(runId, "failed", { error: error.message });
+        // Fire-and-forget, guarded — see onComplete above.
+        lifecycle.updateStatus(runId, "failed", { error: error.message }).catch(() => {});
         onError.run({
           agentId: job.agentId,
           tenantId: job.tenantId,

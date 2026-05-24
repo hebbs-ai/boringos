@@ -382,13 +382,13 @@ remap; sessions self-heal via the runtime gate.
 
 ### Phase 2 — Runtime-scoped sessions (no-migration switch)
 
-- [ ] Decide storage: **`tasks.sessionRuntimeType` column** (preferred) vs session-id prefix. Default to the column.
-- [ ] `db/src/schema/tasks.ts` — add nullable `sessionRuntimeType` + generate migration.
-- [ ] `agent/src/engine.ts` read gate (`:186`): resolve the agent's current runtime type **before** reading the pointer; `previousSessionId = (storedType ?? "claude") === currentType ? tasks.sessionId : undefined`.
-- [ ] `agent/src/engine.ts` write (`:360-365`): persist `result.sessionId` **and** the current runtime type.
-- [ ] Apply the same gate to the copilot `wakeContext.sessionId` path (`:429`).
-- [ ] Ensure no false Mode A: when ignored, `session.ts` takes Mode B/C (no "resuming session X").
-- [ ] Tests: (a) claude agent keeps resuming (legacy `null` ⇒ claude); (b) agent switched to pi ignores the claude pointer, starts fresh, then resumes its pi session on the next wake.
+- [x] Decide storage: **`tasks.sessionRuntimeType` column** (preferred) vs session-id prefix. Default to the column.
+- [x] `db/src/schema/tasks.ts` — add nullable `sessionRuntimeType` + generate migration.
+- [x] `agent/src/engine.ts` read gate (`:186`): resolve the agent's current runtime type **before** reading the pointer; `previousSessionId = (storedType ?? "claude") === currentType ? tasks.sessionId : undefined`.
+- [x] `agent/src/engine.ts` write (`:360-365`): persist `result.sessionId` **and** the current runtime type.
+- [x] Apply the same gate to the copilot `wakeContext.sessionId` path (`:429`).
+- [x] Ensure no false Mode A: when ignored, `session.ts` takes Mode B/C (no "resuming session X").
+- [x] Tests: (a) claude agent keeps resuming (legacy `null` ⇒ claude); (b) agent switched to pi ignores the claude pointer, starts fresh, then resumes its pi session on the next wake.
 - **Done when:** switching an agent's `runtimeId` requires no script and never false-resumes; existing claude resume unaffected.
 
 ### Phase 3 — Connection + dynamic model catalog (UI)

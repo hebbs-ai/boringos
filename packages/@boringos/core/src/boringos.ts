@@ -1476,6 +1476,10 @@ export class BoringOS {
       async close() {
         scheduler.stop();
         server.close();
+        // Drain in-flight agent runs (bounded) before tearing down the DB
+        // pool, so a run that finalizes during shutdown doesn't query a
+        // closed connection (CONNECTION_ENDED unhandled rejection).
+        await resolvedQueue.close().catch(() => {});
         await dbConn.close();
       },
     };

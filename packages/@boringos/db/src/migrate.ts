@@ -508,6 +508,10 @@ async function ensureSchema(db: Db): Promise<void> {
     -- Open-ended metadata jsonb. Stamps the approval decision on
     -- agent_action tasks. See task_06 in docs/blockers/done.
     ALTER TABLE tasks ADD COLUMN IF NOT EXISTS metadata JSONB;
+    -- Runtime that created tasks.session_id. Sessions are runtime-specific;
+    -- the engine only resumes when this matches the agent's current runtime
+    -- (NULL ⇒ legacy "claude"). See docs/pi-runtime-integration.md.
+    ALTER TABLE tasks ADD COLUMN IF NOT EXISTS session_runtime_type TEXT;
     -- Index for the Actions queue: filter by assignee + status + origin_kind
     CREATE INDEX IF NOT EXISTS tasks_actions_idx ON tasks(tenant_id, assignee_user_id, status, origin_kind);
 

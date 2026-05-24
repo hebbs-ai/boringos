@@ -18,6 +18,7 @@ export { createWakeup } from "./wakeup.js";
 export { createRunLifecycle } from "./run-lifecycle.js";
 export { createAgentEngine } from "./engine.js";
 export type { AgentEngineConfig } from "./engine.js";
+export { resolveResumableSessionId } from "./session-scope.js";
 
 export { resolvePersonaRole, loadPersonaBundle, mergePersonaBundle } from "./persona-loader.js";
 

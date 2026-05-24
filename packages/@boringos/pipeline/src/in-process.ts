@@ -63,7 +63,16 @@ export function createInProcessQueue<T>(options: InProcessQueueOptions = {}): Qu
     },
 
     async close(): Promise<void> {
+      // Stop pulling NEW jobs, then drain in-flight ones so graceful
+      // shutdown can await active runs before shared resources (e.g. the
+      // DB pool) are torn down. Without this, an in-flight run queries a
+      // closing connection → CONNECTION_ENDED. Bounded so a stuck job
+      // can't hang shutdown forever.
       closed = true;
+      const deadline = Date.now() + 5000;
+      while (running > 0 && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 25));
+      }
     },
   };
 }

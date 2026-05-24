@@ -123,6 +123,14 @@ or interactive window, and never run anything that blocks waiting for one.
   \`tasks/<taskId>/\` folder (\`drive.write\` / \`drive.write_binary\`), then
   deliver it to the user as the drive URL in your reply. One file = one URL —
   never paste base64 into a comment.
+- **Deliver the artifact, not the recipe.** When the user asks for a chart,
+  graph, image, file, or any produced output, you MUST run the code yourself in
+  this run and attach the resulting file. Never reply with a script, a code
+  block, or "here's how to make it" instructions in place of the thing they
+  asked for. A reply that hands back code the user would have to run themselves
+  is a FAILED run — execute it, save the output, embed the URL
+  (\`![alt](<drive-url>)\` for images). Only fall back to describing an approach
+  if execution is genuinely impossible, and say explicitly why.
 
 Your final answer is always a **markdown** comment on the task: do the work, save
 the outputs, post the markdown reply (with any artifact URLs), then end your run.`;

@@ -394,9 +394,9 @@ remap; sessions self-heal via the runtime gate.
 ### Phase 3 — Connection + dynamic model catalog (UI)
 
 - [ ] Seed the **"Pi · OpenAI"** connection row in `runtimes` (`type=pi`, `config.provider=openai`, `model="openai/gpt-4.1-mini"`) — via admin API or a seed path.
-- [ ] Verify `GET /runtimes/:id` returns `listModels()` output for a pi row (the live OpenAI catalog).
-- [ ] `shell/src/screens/Settings/AgentsPanel.tsx` — replace hardcoded `CLAUDE_MODELS` with a **runtime-aware** list: resolve the agent's runtime row → type → fetch that type's models; render those options. Retires the Codex/Gemini TODO.
-- [ ] Confirm default resolution: no override + no row model ⇒ `openai/gpt-4.1-mini`.
+- [x] Verify `GET /runtimes/:id` returns `listModels()` output for a pi row (the live OpenAI catalog).
+- [x] `shell/src/screens/Settings/AgentsPanel.tsx` — replace hardcoded `CLAUDE_MODELS` with a **runtime-aware** list: resolve the agent's runtime row → type → fetch that type's models; render those options. Retires the Codex/Gemini TODO.
+- [x] Confirm default resolution: no override + no row model ⇒ `openai/gpt-4.1-mini`.
 - [ ] Multi-tenant credential injection: read provider/key ref from runtime-row `config`, inject per-run via `--api-key`/env (not machine `auth.json`).
 - [ ] Tests: dropdown shows pi/OpenAI models for a pi agent and Claude models for a claude agent.
 - **Done when:** a pi agent can be created/configured entirely from the UI with a live, correct model list.

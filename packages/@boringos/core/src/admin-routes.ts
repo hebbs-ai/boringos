@@ -1231,7 +1231,13 @@ export function createAdminRoutes(
     const rtModule = runtimeRegistry?.get(rows[0].type);
     if (!rtModule) return c.json({ models: [] });
 
-    const models = rtModule.models ?? (rtModule.listModels ? await rtModule.listModels() : []);
+    // Prefer the runtime's live catalog (listModels) when it provides one —
+    // e.g. pi enumerates the models its configured key can access — and fall
+    // back to the static `models` array (claude and friends). listModels
+    // implementations swallow their own errors and return a sane fallback.
+    const models = rtModule.listModels
+      ? await rtModule.listModels()
+      : (rtModule.models ?? []);
     return c.json({ models });
   });
 

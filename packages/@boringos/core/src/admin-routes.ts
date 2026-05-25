@@ -37,7 +37,7 @@ import {
 import type { AgentEngine, ToolRegistry } from "@boringos/agent";
 import type { RuntimeRegistry } from "@boringos/runtime";
 import type { StorageBackend } from "@boringos/drive";
-import { generateId } from "@boringos/shared";
+import { generateId, TASK_STATUSES, type TaskStatus } from "@boringos/shared";
 import type { RealtimeBus } from "./realtime.js";
 import type { EventBus } from "./event-bus.js";
 import { syncArchive, syncStatusChange } from "./inbox-gmail-sync.js";
@@ -294,12 +294,47 @@ export function createAdminRoutes(
       values.reportsTo = body.reportsTo;
     }
 
-    // Task 07: Protect shell agents from modification
-    const agentRows = await db.select({ source: (await import("@boringos/db")).agents.source })
-      .from((await import("@boringos/db")).agents).where(eq((await import("@boringos/db")).agents.id, agentId)).limit(1) as Array<{ source: string }>;
+    // Task 07: Shell-source agents (Copilot, Triage, Replier, etc.)
+    // are framework-owned — their identity (name, role, instructions,
+    // reportsTo) is immutable per release. BUT runtime/model swaps
+    // are benign: they change WHICH LLM executes the agent, not WHO
+    // the agent is. Allow that subset so operators can move the
+    // Copilot off Haiku without forking the framework.
+    //
+    // We also fetch the current `model` so the model-swap path below
+    // can detect an actual change vs. an idempotent PATCH that resends
+    // the same value.
+    const agentRows = await db
+      .select({ source: agents.source, model: agents.model })
+      .from(agents)
+      .where(eq(agents.id, agentId))
+      .limit(1) as Array<{ source: string; model: string | null }>;
     if (agentRows[0]?.source === "shell") {
-      return c.json({ error: "Framework agents (source='shell') cannot be modified" }, 403);
+      // Allowlist applies to body keys only; updatedAt is set by the
+      // server and never appears in `body`. Permissions and budgets
+      // are also tenant-controlled config (not identity), so they're
+      // included.
+      const SHELL_MUTABLE = new Set([
+        "model",
+        "runtimeId",
+        "fallbackRuntimeId",
+        "status",
+        "permissions",
+        "budgetMonthlyCents",
+      ]);
+      const offending = Object.keys(body).filter((k) => !SHELL_MUTABLE.has(k));
+      if (offending.length > 0) {
+        return c.json(
+          {
+            error:
+              `Framework agents (source='shell') only allow model/runtime/budget changes; ` +
+              `the following keys cannot be modified: ${offending.join(", ")}.`,
+          },
+          403,
+        );
+      }
     }
+    const previousModel = agentRows[0]?.model ?? null;
 
     if (body.name !== undefined) values.name = body.name;
     if (body.role !== undefined) values.role = body.role;
@@ -363,11 +398,128 @@ export function createAdminRoutes(
     );
     const rows = await db.select().from(agents).where(eq(agents.id, c.req.param("id"))).limit(1);
 
+    // Session invalidation on model change.
+    //
+    // Background: `tasks.session_id` caches the Claude Code session
+    // an agent has been resuming for a given task. When the operator
+    // switches the agent's model, the engine still passes
+    // `--resume <oldSessionId> --model <new>`, but Claude Code
+    // ignores `--model` on a resumed session and keeps the original
+    // model. Result: the model swap is silently a no-op.
+    //
+    // Fix: when `model` actually changed, NULL out `session_id` for
+    // every active task assigned to this agent so the next wake
+    // starts a fresh session under the new model. Tasks whose
+    // latest run is currently `running` are deferred — clearing
+    // session_id under a live run would race with the engine's
+    // post-run UPDATE. The next wake after that run finishes will
+    // pick up the cleared session_id.
+    let sessionInvalidation = { tasksCleared: 0, tasksDeferred: 0 };
+    if (body.model !== undefined && body.model !== previousModel) {
+      // Active task statuses = anything that isn't terminal. We
+      // import the canonical list from @boringos/shared and filter
+      // out the terminal ones rather than hardcoding the in-flight
+      // set, so future statuses (e.g. 'in_review') are covered
+      // automatically.
+      const ACTIVE_TASK_STATUSES = TASK_STATUSES.filter(
+        (s): s is TaskStatus => s !== "done" && s !== "cancelled",
+      );
+      const tenantId = c.get("tenantId");
+
+      // Candidate tasks: assigned to this agent, not terminal,
+      // currently carry a session_id (no point clearing nulls).
+      const candidates = await db
+        .select({ id: tasks.id })
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.assigneeAgentId, c.req.param("id")),
+            eq(tasks.tenantId, tenantId),
+            sql`${tasks.status} = ANY(${ACTIVE_TASK_STATUSES})`,
+            sql`${tasks.sessionId} IS NOT NULL`,
+          ),
+        );
+
+      if (candidates.length > 0) {
+        // Latest-run-per-task: agent_runs link to tasks via
+        // wakeup_request_id → agent_wakeup_requests.task_id. We
+        // pull the most recent run per task and check its status.
+        const candidateIds = candidates.map((t) => t.id);
+        const wakeups = await db
+          .select({ id: agentWakeupRequests.id, taskId: agentWakeupRequests.taskId })
+          .from(agentWakeupRequests)
+          .where(
+            sql`${agentWakeupRequests.taskId} = ANY(ARRAY[${sql.join(
+              candidateIds.map((id) => sql`${id}::uuid`),
+              sql`, `,
+            )}])`,
+          );
+
+        const wakeToTask = new Map<string, string>();
+        for (const w of wakeups) if (w.taskId) wakeToTask.set(w.id, w.taskId);
+
+        const wakeIds = [...wakeToTask.keys()];
+        const taskRunStatus = new Map<string, string>(); // taskId → latest run status
+        if (wakeIds.length > 0) {
+          const runs = await db
+            .select({
+              wakeupRequestId: agentRuns.wakeupRequestId,
+              status: agentRuns.status,
+              createdAt: agentRuns.createdAt,
+            })
+            .from(agentRuns)
+            .where(
+              sql`${agentRuns.wakeupRequestId} = ANY(ARRAY[${sql.join(
+                wakeIds.map((id) => sql`${id}::uuid`),
+                sql`, `,
+              )}])`,
+            )
+            .orderBy(desc(agentRuns.createdAt));
+          for (const r of runs) {
+            const taskId = r.wakeupRequestId ? wakeToTask.get(r.wakeupRequestId) : undefined;
+            if (!taskId) continue;
+            // First-write-wins because the result set is desc(createdAt).
+            if (!taskRunStatus.has(taskId)) taskRunStatus.set(taskId, r.status);
+          }
+        }
+
+        const toClear: string[] = [];
+        for (const t of candidates) {
+          if (taskRunStatus.get(t.id) === "running") {
+            sessionInvalidation.tasksDeferred += 1;
+          } else {
+            toClear.push(t.id);
+          }
+        }
+
+        if (toClear.length > 0) {
+          await db
+            .update(tasks)
+            .set({ sessionId: null, updatedAt: new Date() })
+            .where(
+              sql`${tasks.id} = ANY(ARRAY[${sql.join(
+                toClear.map((id) => sql`${id}::uuid`),
+                sql`, `,
+              )}])`,
+            );
+          sessionInvalidation.tasksCleared = toClear.length;
+        }
+      }
+    }
+
     if (body.reportsTo !== undefined) {
       emit("agent:reparented", c.get("tenantId"), { agentId: c.req.param("id"), reportsTo: values.reportsTo });
     }
-    emit("agent:updated", c.get("tenantId"), { agentId: c.req.param("id") });
-    return c.json(rows[0]);
+    emit("agent:updated", c.get("tenantId"), {
+      agentId: c.req.param("id"),
+      modelChanged: body.model !== undefined && body.model !== previousModel,
+      sessionInvalidation,
+    });
+    // Attach `sessionInvalidation` so the frontend can branch its
+    // toast message between "next run uses Opus" and "current run
+    // finishes on Haiku, next run uses Opus". Older clients that
+    // ignore the field keep working.
+    return c.json({ ...rows[0], sessionInvalidation });
   });
 
   // Dedicated routing-tags endpoint: cheaper than round-tripping the

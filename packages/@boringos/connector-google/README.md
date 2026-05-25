@@ -8,6 +8,16 @@ Google Workspace connector for BoringOS -- Gmail and Calendar integration with O
 npm install @boringos/connector-google
 ```
 
+## Setup
+
+The connector needs an OAuth 2.0 client from the Google Cloud
+Console. The full walkthrough -- which scopes to request, the
+exact callback URI, and the production-host checklist -- lives
+at [`docs/setup/google.md`](../../../docs/setup/google.md) in the
+framework repo. Two env vars on the host (`GOOGLE_CLIENT_ID` and
+`GOOGLE_CLIENT_SECRET`) and the `Connect Google` button in the
+shell's Connectors screen does the rest.
+
 ## Usage
 
 ```typescript

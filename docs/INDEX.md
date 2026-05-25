@@ -11,6 +11,8 @@ want them.
   Module in 60 seconds.
 - [`CLAUDE.md`](../CLAUDE.md) — orientation for contributors
   (humans + AI). Mental model, monorepo layout, non-obvious behavior.
+- [`docs/setup/google.md`](setup/google.md) — Gmail + Calendar
+  OAuth setup (Cloud Console + env vars).
 
 ## Build a Module
 

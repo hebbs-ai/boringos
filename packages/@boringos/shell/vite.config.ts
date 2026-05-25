@@ -94,7 +94,11 @@ const ESM_PASSTHROUGH = [
 const ALL_EXTERNALS = [...Object.keys(SHIM_EXPORTS), ...ESM_PASSTHROUGH];
 
 function readMetadata():
-  | { hash: string; optimized: Record<string, { file: string }> }
+  | {
+      hash: string;
+      browserHash: string;
+      optimized: Record<string, { file: string }>;
+    }
   | null {
   const metaPath = resolve(
     process.cwd(),
@@ -104,13 +108,32 @@ function readMetadata():
   return JSON.parse(readFileSync(metaPath, "utf8"));
 }
 
+// CRITICAL: use `browserHash`, NOT `hash`.
+//
+//   - `meta.hash`        — Vite optimizer's internal "are deps stale?"
+//                          stamp. Changes when the resolved dep set
+//                          changes; doesn't appear in the URLs Vite
+//                          serves.
+//   - `meta.browserHash` — the actual `?v=` cache-buster Vite stamps
+//                          onto every dep URL it serves to the browser
+//                          (e.g. `import "react"` in shell source gets
+//                          rewritten to `react.js?v=<browserHash>`).
+//
+// If we build the import map's URLs with `hash` while the host shell's
+// own imports use `browserHash`, the browser sees two distinct URLs
+// for the same React (`react.js?v=<hash>` and `react.js?v=<browserHash>`)
+// and module-caches them as TWO modules. Each one carries its own
+// React internals chunk → two dispatcher singletons → "Invalid hook
+// call / Cannot read 'useState' of null" the moment a runtime-loaded
+// `.hebbsmod` plugin renders. Aligning to `browserHash` keeps every
+// React import in the page resolving to one module.
 function depUrlFor(spec: string): string | null {
   const meta = readMetadata();
   if (!meta) return null;
   const entry = meta.optimized?.[spec];
   if (!entry) return null;
   const file = entry.file.split("/").pop();
-  return `/node_modules/.vite/deps/${file}?v=${meta.hash}`;
+  return `/node_modules/.vite/deps/${file}?v=${meta.browserHash}`;
 }
 
 function buildShim(spec: string): string | null {
@@ -163,15 +186,20 @@ function runtimePluginImportMap(): Plugin {
         const meta = readMetadata();
         if (!meta) return [];
         const imports: Record<string, string> = {};
+        // See `depUrlFor` for the `browserHash` vs `hash` rationale.
+        // tl;dr — `browserHash` matches the URL Vite uses for the
+        // host shell's own React imports, so the browser dedupes
+        // host + plugin React into a single module instance.
+        const v = meta.browserHash;
         for (const spec of ALL_EXTERNALS) {
           const entry = meta.optimized?.[spec];
           if (!entry) continue;
           if (SHIM_EXPORTS[spec]) {
             // CJS-wrapped — go through shim so named imports resolve.
-            imports[spec] = `/runtime-shims/${encodeURIComponent(spec)}.js?v=${meta.hash}`;
+            imports[spec] = `/runtime-shims/${encodeURIComponent(spec)}.js?v=${v}`;
           } else {
             const file = entry.file.split("/").pop();
-            imports[spec] = `/node_modules/.vite/deps/${file}?v=${meta.hash}`;
+            imports[spec] = `/node_modules/.vite/deps/${file}?v=${v}`;
           }
         }
         if (Object.keys(imports).length === 0) return [];

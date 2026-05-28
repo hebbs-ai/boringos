@@ -16,6 +16,8 @@ import {
   createInboxModule,
   createWorkflowModule,
   createCopilotModule,
+  createGoogleModule,
+  createSlackModule,
   createTriageModule,
   createInboxTriageModule,
   createInboxReplierModule,
@@ -54,10 +56,13 @@ app.module(createDriveModule);
 app.module(createInboxModule);
 app.module(createWorkflowModule);
 app.module(createCopilotModule);
-// Google + Slack connectors are now SDK packages (@boringos/connector-google,
-// @boringos/connector-slack). They register with AuthManager automatically at
-// boot. Tool-exposing built-in modules for them have been removed (Path B).
-// Third-party modules consume the SDK directly and ship their own tools.
+// Thin built-in wrappers around the connector SDKs. They expose
+// `gmail.*` / `calendar.*` / `send_message` / etc. tools that the Shell
+// calendar and inbox screens depend on. Third-party modules can still
+// build their own purpose-specific tools using @boringos/connector-google
+// and @boringos/connector-slack directly.
+app.module(createGoogleModule);
+app.module(createSlackModule);
 app.module(createTriageModule);
 app.module(createInboxTriageModule);
 app.module(createInboxReplierModule);

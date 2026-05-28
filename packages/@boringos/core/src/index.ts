@@ -29,6 +29,8 @@ export { createCopilotModule } from "./modules/copilot.js";
 export { createTriageModule } from "./modules/triage.js";
 export { createInboxTriageModule } from "./modules/inbox-triage.js";
 export { createInboxReplierModule } from "./modules/inbox-replier.js";
+export { createGoogleModule } from "./modules/google.js";
+export { createSlackModule } from "./modules/slack.js";
 
 // Re-export key types from sub-packages for convenience
 export type { MemoryProvider } from "@boringos/memory";

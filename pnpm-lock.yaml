@@ -239,6 +239,37 @@ importers:
         specifier: ^3.0.5
         version: 3.2.4(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)
 
+  packages/@boringos/dev-host:
+    dependencies:
+      '@boringos/agent':
+        specifier: workspace:*
+        version: link:../agent
+      '@boringos/core':
+        specifier: workspace:*
+        version: link:../core
+      '@boringos/db':
+        specifier: workspace:*
+        version: link:../db
+      '@boringos/module-sdk':
+        specifier: workspace:*
+        version: link:../module-sdk
+      adm-zip:
+        specifier: ^0.5.17
+        version: 0.5.17
+      drizzle-orm:
+        specifier: ^0.41.0
+        version: 0.41.0(@opentelemetry/api@1.9.1)(gel@2.2.0)(kysely@0.28.15)(pg@8.20.0)(postgres@3.4.9)
+    devDependencies:
+      '@types/adm-zip':
+        specifier: ^0.5.8
+        version: 0.5.8
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.17
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+
   packages/@boringos/drive:
     dependencies:
       '@boringos/db':

@@ -21,6 +21,7 @@ export default defineConfig({
       "@boringos/connector-sdk": resolve(__dirname, "packages/@boringos/connector-sdk/src/index.ts"),
       "@boringos/shell": resolve(__dirname, "packages/@boringos/shell/src"),
       "@boringos/control-plane": resolve(__dirname, "packages/@boringos/control-plane/src/index.ts"),
+      "@boringos/dev-host": resolve(__dirname, "packages/@boringos/dev-host/src/index.ts"),
     },
   },
   test: {

@@ -21,7 +21,7 @@
 import { Hono, type Context } from "hono";
 import { eq, and, sql } from "drizzle-orm";
 import type { Db } from "@boringos/db";
-import { connectors } from "@boringos/db";
+import { connectors, packCredentials } from "@boringos/db";
 import { generateId } from "@boringos/shared";
 import {
   createOAuthManager,
@@ -188,6 +188,7 @@ export function createConnectorRoutes(
         refreshToken: tokens.refreshToken,
         expiresAt: tokens.expiresAt?.toISOString(),
       };
+      const encryptedCreds = packCredentials(credentialBag) as unknown as Record<string, unknown>;
       const existing = await db
         .select()
         .from(connectors)
@@ -196,7 +197,7 @@ export function createConnectorRoutes(
       if (existing[0]) {
         await db
           .update(connectors)
-          .set({ credentials: credentialBag, status: "active", updatedAt: new Date() })
+          .set({ credentials: encryptedCreds, status: "active", updatedAt: new Date() })
           .where(eq(connectors.id, existing[0].id));
       } else {
         await db.insert(connectors).values({
@@ -205,7 +206,7 @@ export function createConnectorRoutes(
           kind,
           status: "active",
           config: {},
-          credentials: credentialBag,
+          credentials: encryptedCreds,
         });
       }
       return c.redirect(`${returnTo}?connect=ok&kind=${encodeURIComponent(kind)}`);

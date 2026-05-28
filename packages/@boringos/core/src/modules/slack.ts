@@ -10,7 +10,7 @@
 
 import { eq, and } from "drizzle-orm";
 import type { Db } from "@boringos/db";
-import { connectors } from "@boringos/db";
+import { connectors, unpackCredentials } from "@boringos/db";
 import { SlackClient } from "@boringos/connector-slack";
 import { z } from "@boringos/module-sdk";
 import type {
@@ -52,8 +52,12 @@ async function loadSlackCreds(db: Db, tenantId: string): Promise<{ accessToken: 
     .where(and(eq(connectors.tenantId, tenantId), eq(connectors.kind, "slack")))
     .limit(1);
   const row = rows[0] as CredsRow | undefined;
-  if (!row || !row.credentials) return null;
-  const accessToken = row.credentials.accessToken;
+  if (!row) return null;
+  const creds = unpackCredentials<{ accessToken: string; [k: string]: unknown }>(
+    row.credentials as string | Record<string, unknown> | null,
+  );
+  if (!creds) return null;
+  const accessToken = creds.accessToken;
   if (typeof accessToken !== "string") return null;
   return { accessToken };
 }

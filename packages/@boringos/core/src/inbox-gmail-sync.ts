@@ -18,7 +18,7 @@
 
 import { eq, and } from "drizzle-orm";
 import type { Db } from "@boringos/db";
-import { connectors, inboxItems } from "@boringos/db";
+import { connectors, inboxItems, packCredentials, unpackCredentials } from "@boringos/db";
 import { GmailClient } from "@boringos/connector-google";
 import { refreshOAuthToken } from "./oauth.js";
 
@@ -45,9 +45,12 @@ async function loadConnector(db: Db, tenantId: string): Promise<ConnectorRow | n
     .limit(1);
   const row = rows[0];
   if (!row) return null;
+  const creds = unpackCredentials<Record<string, unknown>>(
+    row.credentials as string | Record<string, unknown> | null,
+  );
   return {
     id: row.id,
-    credentials: (row.credentials as Record<string, unknown>) ?? null,
+    credentials: creds,
     config: (row.config as Record<string, unknown>) ?? null,
   };
 }
@@ -79,7 +82,7 @@ async function runWithRefresh(
       if (refreshed.expiresAt) nextCreds.expiresAt = refreshed.expiresAt;
       await db
         .update(connectors)
-        .set({ credentials: nextCreds, updatedAt: new Date() })
+        .set({ credentials: packCredentials(nextCreds) as unknown as Record<string, unknown>, updatedAt: new Date() })
         .where(eq(connectors.id, row.id))
         .catch(() => {});
       result = await new GmailClient(refreshed.accessToken).executeAction(action, inputs);

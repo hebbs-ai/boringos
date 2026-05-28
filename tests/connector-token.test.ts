@@ -6,6 +6,17 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { getConnectorTokenForTenant } from "../packages/@boringos/core/src/connector-tokens.js";
+import { unpackCredentials } from "../packages/@boringos/db/src/credentials.js";
+
+// Set BORINGOS_ENCRYPTION_KEY for all tests in this file so that
+// packCredentials / unpackCredentials work without hitting a real key store.
+const TEST_ENCRYPTION_KEY = "a".repeat(64); // 32 bytes as 64 hex chars
+beforeEach(() => {
+  process.env.BORINGOS_ENCRYPTION_KEY = TEST_ENCRYPTION_KEY;
+});
+afterEach(() => {
+  delete process.env.BORINGOS_ENCRYPTION_KEY;
+});
 
 // ── Mock refreshOAuthToken ────────────────────────────────────────────────────
 
@@ -178,8 +189,13 @@ describe("getConnectorTokenForTenant", () => {
 
     expect(updateMock).toHaveBeenCalled();
     const setCall = updateSetMock.mock.calls[0][0];
-    expect(setCall.credentials.accessToken).toBe("access-tok-refreshed");
-    expect(setCall.credentials.expiresAt).toBe(newExpiry);
+    // Credentials are now stored encrypted. Verify the stored value is
+    // a non-empty string (the ciphertext blob) and that it round-trips
+    // back to the expected access token + expiry.
+    expect(typeof setCall.credentials).toBe("string");
+    const decrypted = unpackCredentials<{ accessToken: string; expiresAt: string }>(setCall.credentials as string);
+    expect(decrypted?.accessToken).toBe("access-tok-refreshed");
+    expect(decrypted?.expiresAt).toBe(newExpiry);
   });
 
   // ─── audit hook ────────────────────────────────────────────────

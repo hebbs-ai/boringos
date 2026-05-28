@@ -9,7 +9,7 @@
 // Phase 7 of task_12.
 import { eq, and } from "drizzle-orm";
 import type { Db } from "@boringos/db";
-import { connectors } from "@boringos/db";
+import { connectors, packCredentials, unpackCredentials } from "@boringos/db";
 import { GmailClient, CalendarClient } from "@boringos/connector-google";
 import { refreshOAuthToken } from "../oauth.js";
 import { z } from "@boringos/module-sdk";
@@ -78,14 +78,16 @@ async function loadGoogleCreds(
     .where(and(eq(connectors.tenantId, tenantId), eq(connectors.kind, "google")))
     .limit(1);
   const row = rows[0] as (CredsRow & { id: string }) | undefined;
-  if (!row || !row.credentials) return null;
-  const accessToken = row.credentials.accessToken;
+  if (!row) return null;
+  const creds = unpackCredentials<{ accessToken: string; refreshToken?: string; expiresAt?: string; [k: string]: unknown }>(
+    row.credentials as string | Record<string, unknown> | null,
+  );
+  if (!creds) return null;
+  const accessToken = creds.accessToken;
   if (typeof accessToken !== "string") return null;
   const refreshToken =
-    typeof row.credentials.refreshToken === "string"
-      ? row.credentials.refreshToken
-      : undefined;
-  return { rowId: row.id, rawCredentials: row.credentials, accessToken, refreshToken };
+    typeof creds.refreshToken === "string" ? creds.refreshToken : undefined;
+  return { rowId: row.id, rawCredentials: creds, accessToken, refreshToken };
 }
 
 /**
@@ -124,7 +126,7 @@ async function runWithRefresh(
       if (refreshed.expiresAt) nextCreds.expiresAt = refreshed.expiresAt;
       await db
         .update(connectors)
-        .set({ credentials: nextCreds, updatedAt: new Date() })
+        .set({ credentials: packCredentials(nextCreds) as unknown as Record<string, unknown>, updatedAt: new Date() })
         .where(eq(connectors.id, creds.rowId))
         .catch(() => {});
       result = await invokeOnce(refreshed.accessToken);
@@ -189,7 +191,7 @@ export async function getGoogleToken(
       if (refreshed.expiresAt) next.expiresAt = refreshed.expiresAt;
       await db
         .update(connectors)
-        .set({ credentials: next, updatedAt: new Date() })
+        .set({ credentials: packCredentials(next) as unknown as Record<string, unknown>, updatedAt: new Date() })
         .where(eq(connectors.id, creds.rowId))
         .catch(() => {});
       return { accessToken: refreshed.accessToken };

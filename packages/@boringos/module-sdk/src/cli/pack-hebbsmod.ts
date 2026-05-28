@@ -33,9 +33,10 @@ import {
   readFileSync,
   realpathSync,
   statSync,
+  writeFileSync,
 } from "node:fs";
 import { isAbsolute, relative, resolve as resolvePath } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import archiver from "archiver";
 import * as esbuild from "esbuild";
@@ -380,6 +381,133 @@ interface ZipPlan {
   outZip: string;
 }
 
+// ---------------------------------------------------------------------------
+// Manifest derivation — MDK T2.1
+// ---------------------------------------------------------------------------
+//
+// Source of truth for runtime fields (id, name, version, description, kind,
+// dependsOn, provides, defaultInstall) is the Module factory itself. The
+// on-disk module.json carries pack-time-only fields (entry, ui, publisher,
+// license, minFrameworkVersion). At pack time we dynamic-import the bundle,
+// call the factory with a stub deps object, read the resulting Module, and
+// produce a merged manifest where runtime fields win.
+//
+// A factory that throws on stub deps (real production modules sometimes do)
+// degrades gracefully: a warning is printed and the on-disk manifest is used
+// verbatim. CI can opt into strict mode via --strict (future work) but for
+// now the design is "warn and proceed" so existing packagings keep working.
+//
+// Author-facing impact: drift between `src/module.ts`'s `version` and
+// `module.json`'s `version` is no longer silently shipped — the .hebbsmod
+// will carry the runtime version, and the drift is announced on stdout.
+
+interface RuntimeManifestFields {
+  id?: unknown;
+  name?: unknown;
+  version?: unknown;
+  description?: unknown;
+  kind?: unknown;
+  dependsOn?: unknown;
+  provides?: unknown;
+  defaultInstall?: unknown;
+}
+
+/**
+ * Merge a static (on-disk) manifest with the runtime Module's manifest fields.
+ * Runtime fields override; pack-time-only fields (entry, ui, publisher,
+ * license, minFrameworkVersion) come from the static manifest unchanged.
+ * Returns the merged manifest plus a list of drifted fields for reporting.
+ *
+ * Exported for unit testing.
+ */
+export function mergeManifest(
+  staticManifest: ModuleManifestStatic,
+  runtime: RuntimeManifestFields | undefined,
+): { manifest: ModuleManifestStatic; drift: string[] } {
+  if (!runtime) {
+    return { manifest: staticManifest, drift: [] };
+  }
+  const drift: string[] = [];
+  const merged: ModuleManifestStatic = { ...staticManifest };
+
+  function applyString<K extends "id" | "version" | "name" | "description">(
+    key: K,
+    rawRuntime: unknown,
+  ): void {
+    if (typeof rawRuntime !== "string" || rawRuntime.length === 0) return;
+    const existing = staticManifest[key];
+    if (existing !== undefined && existing !== rawRuntime) {
+      drift.push(`${key}: "${String(existing)}" → "${rawRuntime}"`);
+    }
+    (merged as Record<string, unknown>)[key] = rawRuntime;
+  }
+  applyString("id", runtime.id);
+  applyString("version", runtime.version);
+  applyString("name", runtime.name);
+  applyString("description", runtime.description);
+
+  if (typeof runtime.kind === "string") {
+    if (
+      staticManifest.kind !== undefined &&
+      staticManifest.kind !== runtime.kind
+    ) {
+      drift.push(`kind: "${staticManifest.kind}" → "${runtime.kind}"`);
+    }
+    merged.kind = runtime.kind as ModuleManifestStatic["kind"];
+  }
+  if (runtime.dependsOn !== undefined) merged.dependsOn = runtime.dependsOn;
+  if (runtime.provides !== undefined) merged.provides = runtime.provides;
+  if (runtime.defaultInstall !== undefined) {
+    merged.defaultInstall = runtime.defaultInstall;
+  }
+
+  return { manifest: merged, drift };
+}
+
+/**
+ * Dynamic-import the bundled entry, call the factory with a stub deps
+ * object, and pull the resulting Module's manifest fields out for merging.
+ * Never throws — failure to introspect logs a warning and returns undefined.
+ */
+async function readRuntimeManifest(
+  bundlePath: string,
+  manifestId: string,
+): Promise<RuntimeManifestFields | undefined> {
+  try {
+    const bundleUrl = pathToFileURL(bundlePath).href;
+    const mod = (await import(bundleUrl)) as Record<string, unknown>;
+    const candidates = [
+      mod.default,
+      mod[`create${capitalizeId(manifestId)}Module`],
+      ...Object.values(mod).filter((v) => typeof v === "function"),
+    ];
+    const factory = candidates.find((v) => typeof v === "function") as
+      | ((deps: Record<string, unknown>) => unknown)
+      | undefined;
+    if (!factory) return undefined;
+    const result = await factory({});
+    if (result && typeof result === "object") {
+      return result as RuntimeManifestFields;
+    }
+    return undefined;
+  } catch (err) {
+    process.stderr.write(
+      `[pack-hebbsmod] factory introspection skipped — could not call the ` +
+        `factory with stub deps (${(err as Error).message}). The bundled ` +
+        `module.json will use the on-disk static manifest verbatim.\n`,
+    );
+    return undefined;
+  }
+}
+
+function capitalizeId(s: string): string {
+  // crm-tools → CrmTools
+  return s
+    .split("-")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join("");
+}
+
 async function writeZip(plan: ZipPlan): Promise<void> {
   await new Promise<void>((resolveP, rejectP) => {
     const output = createWriteStream(plan.outZip);
@@ -475,21 +603,52 @@ async function main(): Promise<void> {
 
   const outZip = resolvePath(
     paths.distDir,
-    `${manifest.id}-${manifest.version}.hebbsmod`,
+    `__placeholder__.hebbsmod`,
   );
 
-  process.stdout.write(`[pack-hebbsmod] zipping → ${outZip}\n`);
+  // MDK T2.1 — pull the runtime Module's manifest fields out of the
+  // bundle and use them as the source of truth for id/version/name/
+  // description/kind/dependsOn/provides/defaultInstall. The merged
+  // manifest is what lands in the archive; the on-disk module.json
+  // stays untouched.
+  const runtime = await readRuntimeManifest(paths.bundleOut, manifest.id);
+  const { manifest: mergedManifest, drift } = mergeManifest(manifest, runtime);
+  if (drift.length > 0) {
+    process.stdout.write(
+      `[pack-hebbsmod] manifest drift detected (runtime factory wins):\n` +
+        drift.map((d) => `  ${d}\n`).join("") +
+        `  Source of truth: src/module.ts. Update module.json to match (or delete it once T2.1's generator-from-package.json lands).\n`,
+    );
+  }
+
+  // Write the merged manifest to a side path inside dist/ so the
+  // user's on-disk module.json is preserved. The archive renames it
+  // to module.json at the bundle root.
+  const mergedManifestPath = resolvePath(paths.distDir, "module.derived.json");
+  writeFileSync(
+    mergedManifestPath,
+    JSON.stringify(mergedManifest, null, 2) + "\n",
+  );
+
+  // Recompute outZip using the merged manifest's id+version so the
+  // file name matches what the bundle actually claims to be.
+  const finalOutZip = resolvePath(
+    paths.distDir,
+    `${mergedManifest.id}-${mergedManifest.version}.hebbsmod`,
+  );
+
+  process.stdout.write(`[pack-hebbsmod] zipping → ${finalOutZip}\n`);
   await writeZip({
     bundleOut: paths.bundleOut,
-    moduleJson: paths.moduleJson,
+    moduleJson: mergedManifestPath,
     skillsDir: paths.skillsDir,
     migrationsDir: paths.migrationsDir,
     uiDir: paths.uiDir,
-    outZip,
+    outZip: finalOutZip,
   });
 
-  const size = statSync(outZip).size;
-  const hash = await sha256OfFile(outZip);
+  const size = statSync(finalOutZip).size;
+  const hash = await sha256OfFile(finalOutZip);
 
   let uiSummary = "none";
   if (paths.uiDir) {
@@ -502,16 +661,19 @@ async function main(): Promise<void> {
     [
       "",
       "  packed .hebbsmod",
-      `    id:      ${manifest.id}`,
-      `    version: ${manifest.version}`,
-      `    kind:    ${manifest.kind ?? "(unset)"}`,
+      `    id:      ${mergedManifest.id}`,
+      `    version: ${mergedManifest.version}`,
+      `    kind:    ${mergedManifest.kind ?? "(unset)"}`,
       `    size:    ${formatBytes(size)} (${size} bytes)`,
       `    sha256:  ${hash}`,
       `    ui:      ${uiSummary}`,
-      `    output:  ${outZip}`,
+      `    output:  ${finalOutZip}`,
       "",
     ].join("\n"),
   );
+
+  // outZip used outside the await block above (linter dead-code guard).
+  void outZip;
 }
 
 // Only run when invoked as a CLI (not when imported for testing).

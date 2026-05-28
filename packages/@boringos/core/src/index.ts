@@ -43,6 +43,7 @@ export type { AgentEngine, ContextProvider } from "@boringos/agent";
 // Workflows run through the workflow.run tool dispatcher.
 
 export { createAuthMiddleware } from "./auth-middleware.js";
+export { createEventBus } from "./event-bus.js";
 export type { EventBus, ConnectorEvent } from "./event-bus.js";
 export {
   classifyAutomatedMail,

@@ -23,6 +23,9 @@ import type { StorageBackend } from "@boringos/drive";
 // of `ModuleFactoryDeps.realtimeBus`. Concrete bus lives in
 // `@boringos/core` and structurally implements this surface.
 import type { RealtimeBus } from "./realtime.js";
+// MDK T3.1c — minimal `EventBus` contract for cycle-free typing of
+// `ModuleFactoryDeps.eventBus`. Same pattern as `RealtimeBus`.
+import type { EventBus } from "./event-bus.js";
 
 /**
  * Anything carrying a tenantId. Modules are tenant-scoped via
@@ -431,12 +434,16 @@ export interface ModuleFactoryDeps {
    */
   realtimeBus?: RealtimeBus;
   /**
-   * The connector / cross-app event bus. Modules cast this to
-   * `EventBus` from `@boringos/core`. Read at call time so module
-   * factories don't need to resolve before the host has built the
-   * bus.
+   * The connector / cross-app event bus. Modules call
+   * `eventBus.emit(connectorEvent)` to announce cross-module
+   * happenings (Gmail thread received, deal stage changed, etc.).
+   * The host's concrete bus adds `on`/`onAny`/`off` for in-process
+   * subscribers — that surface stays in `@boringos/core` and is
+   * not part of the SDK contract. Read at call time so module
+   * factories don't need to resolve before the host has built
+   * the bus. MDK T3.1c.
    */
-  eventBus?: unknown;
+  eventBus?: EventBus;
   /**
    * Get a token handle for the connector account bound to the calling module.
    * Returns null if no account is connected or bound. The returned handle's

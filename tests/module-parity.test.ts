@@ -252,10 +252,12 @@ describe("v2 parity — every v1 capability has a working v2 equivalent", () => 
       expect(slack.body.ok).toBe(false);
       expect(slack.body.error?.code).toBe("permission_denied");
 
+      // gmail.list_emails without google connector creds: graceful
+      // not_found (v2 path: no binding row means no connected account).
       const gmail = await callTool("google.gmail.list_emails", {});
       expect(gmail.status).toBe(200);
       expect(gmail.body.ok).toBe(false);
-      expect(gmail.body.error?.code).toBe("permission_denied");
+      expect(gmail.body.error?.code).toBe("not_found");
 
       // ──────────────────────────────────────────────────────
       // Admin views — modules / tools / tool_calls all populated

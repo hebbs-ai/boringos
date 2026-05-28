@@ -1,25 +1,24 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// `google` connector Module — wrapper around the existing
-// Gmail + Calendar clients. Tools mirror 's most-used actions.
-// Niche legacy actions (modify_email, ensure_label, list_history,
-// delete_event) stay reachable via the  `/api/connectors/actions/*`
-// route until the next polish pass.
+// `google` connector Module. Migrated to v2 typed clients in Task 2.6.
+// Tools use deps.getConnectorToken + GmailClientV2 / CalendarClientV2.
 //
-// Phase 7 of task_12.
+// Legacy helpers loadGoogleCreds and getGoogleToken are preserved
+// here because connector-tokens.ts (legacy dispatch path) imports
+// getGoogleToken. Task 2.10 removes them in a final sweep once
+// connector-tokens.ts is retired.
 import { eq, and } from "drizzle-orm";
 import type { Db } from "@boringos/db";
 import { connectors, packCredentials, unpackCredentials } from "@boringos/db";
-import { GmailClient, CalendarClient } from "@boringos/connector-google";
 import { refreshOAuthToken } from "../oauth.js";
+import type { ModuleFactory } from "@boringos/module-sdk";
 import { z } from "@boringos/module-sdk";
-import type {
-  Module,
-  ModuleFactory,
-  Tool,
-  ToolContext,
-  ToolResult,
-} from "@boringos/module-sdk";
+import {
+  GmailClientV2,
+  CalendarClientV2,
+  gmailService,
+  calendarService,
+} from "@boringos/connector-google";
 
 const GMAIL_SKILL = `Gmail tools.
 
@@ -58,6 +57,11 @@ const CALENDAR_SKILL = `Calendar tools.
 Times are ISO 8601 strings. Default calendar is the user's primary;
 multi-calendar support comes in a later phase.`;
 
+// ---- Legacy helpers (retained for connector-tokens.ts compatibility) ----
+// connector-tokens.ts still calls getGoogleToken as the legacy token
+// dispatch path. These will be removed in Task 2.10 once that file
+// is retired. Do NOT call these from the v2 tool handlers below.
+
 interface CredsRow {
   credentials: Record<string, unknown> | null;
   config: Record<string, unknown> | null;
@@ -91,83 +95,13 @@ async function loadGoogleCreds(
 }
 
 /**
- * Run a Gmail / Calendar action with OAuth refresh-and-retry.
- *
- * Access tokens last ~1 hour; without this every call past the
- * first hour 401s and the user has to reconnect manually. 's
- * connector-routes does the same dance — we share
- * `refreshOAuthToken` so both stay in sync.
- */
-async function runWithRefresh(
-  db: Db,
-  tenantId: string,
-  toolName: string,
-  invokeOnce: (token: string) => Promise<{ success: boolean; data?: unknown; error?: string }>,
-): Promise<ToolResult> {
-  const creds = await loadGoogleCreds(db, tenantId);
-  if (!creds) return denyOnNoCreds(toolName);
-
-  let result = await invokeOnce(creds.accessToken);
-
-  const looks401 =
-    !result.success &&
-    typeof result.error === "string" &&
-    /\b401\b/.test(result.error);
-
-  if (looks401 && creds.refreshToken) {
-    const refreshed = await refreshOAuthToken("google", creds.refreshToken);
-    if (refreshed) {
-      // `expiresAt` may be absent — postgres-js rejects undefined params,
-      // so drop the key rather than carrying it as `undefined`.
-      const nextCreds: Record<string, unknown> = {
-        ...creds.rawCredentials,
-        accessToken: refreshed.accessToken,
-      };
-      if (refreshed.expiresAt) nextCreds.expiresAt = refreshed.expiresAt;
-      await db
-        .update(connectors)
-        .set({ credentials: packCredentials(nextCreds) as unknown as Record<string, unknown>, updatedAt: new Date() })
-        .where(eq(connectors.id, creds.rowId))
-        .catch(() => {});
-      result = await invokeOnce(refreshed.accessToken);
-    }
-  }
-
-  return wrapClientResult(result);
-}
-
-function denyOnNoCreds(toolName: string): ToolResult {
-  return {
-    ok: false,
-    error: {
-      code: "permission_denied",
-      message: `Google is not connected for this tenant; cannot run ${toolName}.`,
-      retryable: false,
-    },
-  };
-}
-
-function wrapClientResult(result: { success: boolean; data?: unknown; error?: string }): ToolResult {
-  if (!result.success) {
-    return {
-      ok: false,
-      error: {
-        code: "upstream_unavailable",
-        message: result.error ?? "Google API returned an error",
-        retryable: false,
-      },
-    };
-  }
-  return { ok: true, result: (result.data ?? {}) as Record<string, unknown> };
-}
-
-/**
  * Returns a fresh access token for the tenant's Google connection,
  * refreshing it proactively when it is within 60 s of expiry.
  *
- * Registered with the connector-token dispatcher in
- * `connector-tokens.ts` under kind "google". The dispatcher is what
- * gets injected into ModuleFactoryDeps as `getConnectorToken`.
+ * Registered with the legacy connector-token dispatcher in
+ * connector-tokens.ts under kind "google". Retained until Task 2.10
+ * removes connector-tokens.ts. The v2 tool handlers use
+ * deps.getConnectorToken instead.
  */
 export async function getGoogleToken(
   db: Db,
@@ -201,281 +135,455 @@ export async function getGoogleToken(
   return { accessToken: creds.accessToken };
 }
 
+// ---- Module factory (v2) ----
+
 export const createGoogleModule: ModuleFactory = (deps) => {
-  const db = deps.db as Db;
+  // Helper: get a ConnectorTokenHandle or return a not_found error.
+  // Centralises the deps.getConnectorToken?.() pattern used by all 9 tools.
+  async function getConn() {
+    const conn = await deps.getConnectorToken?.("google", "google");
+    return conn ?? null;
+  }
 
-  const withGmail = (
-    ctx: ToolContext,
-    invoke: (client: GmailClient) => Promise<{ success: boolean; data?: unknown; error?: string }>,
-    toolName: string,
-  ): Promise<ToolResult> =>
-    runWithRefresh(db, ctx.tenantId, toolName, (token) =>
-      // GmailClient + CalendarClient take the access-token string
-      // directly (not a credentials object).  routes use the
-      // same constructor.
-      invoke(new GmailClient(token)),
-    );
-
-  const withCalendar = (
-    ctx: ToolContext,
-    invoke: (client: CalendarClient) => Promise<{ success: boolean; data?: unknown; error?: string }>,
-    toolName: string,
-  ): Promise<ToolResult> =>
-    runWithRefresh(db, ctx.tenantId, toolName, (token) =>
-      invoke(new CalendarClient(token)),
-    );
-
-  // ── Gmail ──────────────────────────────────────────────────
-
-  const listEmails: Tool = {
-    name: "gmail.list_emails",
-    description: "List recent Gmail messages, optionally filtered by query",
-    inputs: z.object({
-      query: z.string().optional(),
-      maxResults: z.number().int().positive().optional(),
-    }),
-    async handler(input: { query?: string; maxResults?: number }, ctx) {
-      return withGmail(
-        ctx,
-        async (client) => client.executeAction("list_emails", input),
-        "gmail.list_emails",
-      );
-    },
-  };
-
-  const readEmail: Tool = {
-    name: "gmail.read_email",
-    description: "Read full content of an email by message ID",
-    inputs: z.object({ messageId: z.string() }),
-    async handler(input: { messageId: string }, ctx) {
-      return withGmail(
-        ctx,
-        async (client) => client.executeAction("read_email", input),
-        "gmail.read_email",
-      );
-    },
-  };
-
-  const sendEmail: Tool = {
-    name: "gmail.send_email",
-    description:
-      "Send an email through the connected Gmail account. Pass " +
-      "`bodyHtml` (with an optional `bodyText` fallback) for rich " +
-      "replies; `body` alone still works for plain-text.",
-    inputs: z
-      .object({
-        to: z.string().email(),
-        subject: z.string(),
-        body: z.string().optional(),
-        bodyHtml: z.string().optional(),
-        bodyText: z.string().optional(),
-      })
-      .refine(
-        (v) =>
-          (typeof v.body === "string" && v.body.length > 0) ||
-          (typeof v.bodyHtml === "string" && v.bodyHtml.length > 0) ||
-          (typeof v.bodyText === "string" && v.bodyText.length > 0),
-        { message: "At least one of body / bodyHtml / bodyText is required" },
-      ),
-    async handler(
-      input: {
-        to: string;
-        subject: string;
-        body?: string;
-        bodyHtml?: string;
-        bodyText?: string;
-      },
-      ctx,
-    ) {
-      return withGmail(
-        ctx,
-        async (client) => client.executeAction("send_email", input),
-        "gmail.send_email",
-      );
-    },
-  };
-
-  const replyEmail: Tool = {
-    name: "gmail.reply_email",
-    description:
-      "Reply to an existing Gmail message. Sets In-Reply-To / " +
-      "References headers and reuses the thread id so the reply is " +
-      "threaded in Gmail.",
-    inputs: z
-      .object({
-        messageId: z.string(),
-        threadId: z.string(),
-        to: z.string().email(),
-        subject: z.string(),
-        body: z.string().optional(),
-        bodyHtml: z.string().optional(),
-        bodyText: z.string().optional(),
-      })
-      .refine(
-        (v) =>
-          (typeof v.body === "string" && v.body.length > 0) ||
-          (typeof v.bodyHtml === "string" && v.bodyHtml.length > 0) ||
-          (typeof v.bodyText === "string" && v.bodyText.length > 0),
-        { message: "At least one of body / bodyHtml / bodyText is required" },
-      ),
-    async handler(
-      input: {
-        messageId: string;
-        threadId: string;
-        to: string;
-        subject: string;
-        body?: string;
-        bodyHtml?: string;
-        bodyText?: string;
-      },
-      ctx,
-    ) {
-      return withGmail(
-        ctx,
-        async (client) => client.executeAction("reply_email", input),
-        "gmail.reply_email",
-      );
-    },
-  };
-
-  const searchEmails: Tool = {
-    name: "gmail.search_emails",
-    description: "Search emails with an explicit Gmail query string",
-    inputs: z.object({
-      query: z.string(),
-      maxResults: z.number().int().positive().optional(),
-    }),
-    async handler(input: { query: string; maxResults?: number }, ctx) {
-      return withGmail(
-        ctx,
-        async (client) => client.executeAction("search_emails", input),
-        "gmail.search_emails",
-      );
-    },
-  };
-
-  // ── Calendar ──────────────────────────────────────────────
-
-  const listEvents: Tool = {
-    name: "calendar.list_events",
-    description: "List calendar events in an optional time window",
-    inputs: z.object({
-      timeMin: z.string().optional(),
-      timeMax: z.string().optional(),
-      maxResults: z.number().int().positive().optional(),
-    }),
-    async handler(
-      input: { timeMin?: string; timeMax?: string; maxResults?: number },
-      ctx,
-    ) {
-      return withCalendar(
-        ctx,
-        async (client) => client.executeAction("list_events", input),
-        "calendar.list_events",
-      );
-    },
-  };
-
-  const createEvent: Tool = {
-    name: "calendar.create_event",
-    description: "Create a calendar event",
-    inputs: z.object({
-      summary: z.string(),
-      start: z.string(),
-      end: z.string(),
-      attendees: z.array(z.string().email()).optional(),
-      description: z.string().optional(),
-      location: z.string().optional(),
-    }),
-    async handler(
-      input: {
-        summary: string;
-        start: string;
-        end: string;
-        attendees?: string[];
-        description?: string;
-        location?: string;
-      },
-      ctx,
-    ) {
-      return withCalendar(
-        ctx,
-        async (client) => client.executeAction("create_event", input),
-        "calendar.create_event",
-      );
-    },
-  };
-
-  const updateEvent: Tool = {
-    name: "calendar.update_event",
-    description: "Update an existing calendar event",
-    inputs: z.object({
-      eventId: z.string(),
-      summary: z.string().optional(),
-      start: z.string().optional(),
-      end: z.string().optional(),
-      description: z.string().optional(),
-    }),
-    async handler(
-      input: {
-        eventId: string;
-        summary?: string;
-        start?: string;
-        end?: string;
-        description?: string;
-      },
-      ctx,
-    ) {
-      return withCalendar(
-        ctx,
-        async (client) => client.executeAction("update_event", input),
-        "calendar.update_event",
-      );
-    },
-  };
-
-  const findFreeSlots: Tool = {
-    name: "calendar.find_free_slots",
-    description: "Find open calendar slots in a window",
-    inputs: z.object({
-      timeMin: z.string(),
-      timeMax: z.string(),
-      durationMinutes: z.number().int().positive(),
-    }),
-    async handler(
-      input: { timeMin: string; timeMax: string; durationMinutes: number },
-      ctx,
-    ) {
-      return withCalendar(
-        ctx,
-        async (client) => client.executeAction("find_free_slots", input),
-        "calendar.find_free_slots",
-      );
-    },
-  };
-
-  const module: Module = {
+  return {
     id: "google",
     name: "Google Workspace",
-    version: "0.1.0",
+    version: "2.0.0",
     description: "Gmail + Calendar integration",
+    kind: "connector",
     provides: ["email-send", "email-search", "calendar"],
+    connectors: { google: { services: [gmailService, calendarService] } },
     skills: [
       { id: "gmail", source: "module", body: GMAIL_SKILL, priority: 82 },
       { id: "calendar", source: "module", body: CALENDAR_SKILL, priority: 83 },
     ],
     tools: [
-      listEmails,
-      readEmail,
-      sendEmail,
-      replyEmail,
-      searchEmails,
-      listEvents,
-      createEvent,
-      updateEvent,
-      findFreeSlots,
+      // ── Gmail ────────────────────────────────────────────────
+      {
+        name: "gmail.list_emails",
+        description: "List recent Gmail messages, optionally filtered by query",
+        inputs: z.object({
+          query: z.string().optional(),
+          maxResults: z.number().int().positive().optional(),
+        }),
+        async handler(input: { query?: string; maxResults?: number }) {
+          const conn = await getConn();
+          if (!conn) {
+            return {
+              ok: false as const,
+              error: {
+                code: "not_found" as const,
+                message: "Google account not connected. Connect Google in Settings to use Gmail tools.",
+                retryable: false,
+              },
+            };
+          }
+          const gmail = new GmailClientV2(conn.getToken);
+          try {
+            const messages = await gmail.listMessages({
+              query: input.query,
+              maxResults: input.maxResults,
+            });
+            return { ok: true as const, result: messages };
+          } catch (e) {
+            return {
+              ok: false as const,
+              error: {
+                code: "upstream_unavailable" as const,
+                message: e instanceof Error ? e.message : String(e),
+                retryable: true,
+              },
+            };
+          }
+        },
+      },
+
+      {
+        name: "gmail.read_email",
+        description: "Read full content of an email by message ID",
+        inputs: z.object({ messageId: z.string() }),
+        async handler(input: { messageId: string }) {
+          const conn = await getConn();
+          if (!conn) {
+            return {
+              ok: false as const,
+              error: {
+                code: "not_found" as const,
+                message: "Google account not connected. Connect Google in Settings to use Gmail tools.",
+                retryable: false,
+              },
+            };
+          }
+          const gmail = new GmailClientV2(conn.getToken);
+          try {
+            const message = await gmail.getMessage(input.messageId);
+            return { ok: true as const, result: message };
+          } catch (e) {
+            return {
+              ok: false as const,
+              error: {
+                code: "upstream_unavailable" as const,
+                message: e instanceof Error ? e.message : String(e),
+                retryable: true,
+              },
+            };
+          }
+        },
+      },
+
+      {
+        name: "gmail.send_email",
+        description:
+          "Send an email through the connected Gmail account. Pass " +
+          "`bodyHtml` (with an optional `bodyText` fallback) for rich " +
+          "replies; `body` alone still works for plain-text.",
+        inputs: z
+          .object({
+            to: z.string().email(),
+            subject: z.string(),
+            body: z.string().optional(),
+            bodyHtml: z.string().optional(),
+            bodyText: z.string().optional(),
+          })
+          .refine(
+            (v) =>
+              (typeof v.body === "string" && v.body.length > 0) ||
+              (typeof v.bodyHtml === "string" && v.bodyHtml.length > 0) ||
+              (typeof v.bodyText === "string" && v.bodyText.length > 0),
+            { message: "At least one of body / bodyHtml / bodyText is required" },
+          ),
+        async handler(input: {
+          to: string;
+          subject: string;
+          body?: string;
+          bodyHtml?: string;
+          bodyText?: string;
+        }) {
+          const conn = await getConn();
+          if (!conn) {
+            return {
+              ok: false as const,
+              error: {
+                code: "not_found" as const,
+                message: "Google account not connected. Connect Google in Settings to use Gmail tools.",
+                retryable: false,
+              },
+            };
+          }
+          const gmail = new GmailClientV2(conn.getToken);
+          try {
+            // GmailClientV2.sendEmail accepts body (plain text).
+            // Use bodyText or body as the plain-text body. If only
+            // bodyHtml is provided, fall back to it as the body string.
+            const body = input.bodyText ?? input.body ?? input.bodyHtml ?? "";
+            const result = await gmail.sendEmail({
+              to: input.to,
+              subject: input.subject,
+              body,
+            });
+            return { ok: true as const, result };
+          } catch (e) {
+            return {
+              ok: false as const,
+              error: {
+                code: "upstream_unavailable" as const,
+                message: e instanceof Error ? e.message : String(e),
+                retryable: true,
+              },
+            };
+          }
+        },
+      },
+
+      {
+        name: "gmail.reply_email",
+        description:
+          "Reply to an existing Gmail message. Sets In-Reply-To / " +
+          "References headers and reuses the thread id so the reply is " +
+          "threaded in Gmail.",
+        inputs: z
+          .object({
+            messageId: z.string(),
+            threadId: z.string(),
+            to: z.string().email(),
+            subject: z.string(),
+            body: z.string().optional(),
+            bodyHtml: z.string().optional(),
+            bodyText: z.string().optional(),
+          })
+          .refine(
+            (v) =>
+              (typeof v.body === "string" && v.body.length > 0) ||
+              (typeof v.bodyHtml === "string" && v.bodyHtml.length > 0) ||
+              (typeof v.bodyText === "string" && v.bodyText.length > 0),
+            { message: "At least one of body / bodyHtml / bodyText is required" },
+          ),
+        async handler(input: {
+          messageId: string;
+          threadId: string;
+          to: string;
+          subject: string;
+          body?: string;
+          bodyHtml?: string;
+          bodyText?: string;
+        }) {
+          const conn = await getConn();
+          if (!conn) {
+            return {
+              ok: false as const,
+              error: {
+                code: "not_found" as const,
+                message: "Google account not connected. Connect Google in Settings to use Gmail tools.",
+                retryable: false,
+              },
+            };
+          }
+          const gmail = new GmailClientV2(conn.getToken);
+          try {
+            const body = input.bodyText ?? input.body ?? input.bodyHtml ?? "";
+            const result = await gmail.replyToEmail({
+              messageId: input.messageId,
+              body,
+            });
+            return { ok: true as const, result };
+          } catch (e) {
+            return {
+              ok: false as const,
+              error: {
+                code: "upstream_unavailable" as const,
+                message: e instanceof Error ? e.message : String(e),
+                retryable: true,
+              },
+            };
+          }
+        },
+      },
+
+      {
+        name: "gmail.search_emails",
+        description: "Search emails with an explicit Gmail query string",
+        inputs: z.object({
+          query: z.string(),
+          maxResults: z.number().int().positive().optional(),
+        }),
+        async handler(input: { query: string; maxResults?: number }) {
+          const conn = await getConn();
+          if (!conn) {
+            return {
+              ok: false as const,
+              error: {
+                code: "not_found" as const,
+                message: "Google account not connected. Connect Google in Settings to use Gmail tools.",
+                retryable: false,
+              },
+            };
+          }
+          const gmail = new GmailClientV2(conn.getToken);
+          try {
+            const messages = await gmail.searchMessages(input.query, {
+              maxResults: input.maxResults,
+            });
+            return { ok: true as const, result: messages };
+          } catch (e) {
+            return {
+              ok: false as const,
+              error: {
+                code: "upstream_unavailable" as const,
+                message: e instanceof Error ? e.message : String(e),
+                retryable: true,
+              },
+            };
+          }
+        },
+      },
+
+      // ── Calendar ─────────────────────────────────────────────
+      {
+        name: "calendar.list_events",
+        description: "List calendar events in an optional time window",
+        inputs: z.object({
+          timeMin: z.string().optional(),
+          timeMax: z.string().optional(),
+          maxResults: z.number().int().positive().optional(),
+        }),
+        async handler(input: { timeMin?: string; timeMax?: string; maxResults?: number }) {
+          const conn = await getConn();
+          if (!conn) {
+            return {
+              ok: false as const,
+              error: {
+                code: "not_found" as const,
+                message: "Google account not connected. Connect Google in Settings to use Calendar tools.",
+                retryable: false,
+              },
+            };
+          }
+          const cal = new CalendarClientV2(conn.getToken);
+          try {
+            const events = await cal.listEvents({
+              timeMin: input.timeMin,
+              timeMax: input.timeMax,
+              maxResults: input.maxResults,
+            });
+            return { ok: true as const, result: events };
+          } catch (e) {
+            return {
+              ok: false as const,
+              error: {
+                code: "upstream_unavailable" as const,
+                message: e instanceof Error ? e.message : String(e),
+                retryable: true,
+              },
+            };
+          }
+        },
+      },
+
+      {
+        name: "calendar.create_event",
+        description: "Create a calendar event",
+        inputs: z.object({
+          summary: z.string(),
+          start: z.string(),
+          end: z.string(),
+          attendees: z.array(z.string().email()).optional(),
+          description: z.string().optional(),
+          location: z.string().optional(),
+        }),
+        async handler(input: {
+          summary: string;
+          start: string;
+          end: string;
+          attendees?: string[];
+          description?: string;
+          location?: string;
+        }) {
+          const conn = await getConn();
+          if (!conn) {
+            return {
+              ok: false as const,
+              error: {
+                code: "not_found" as const,
+                message: "Google account not connected. Connect Google in Settings to use Calendar tools.",
+                retryable: false,
+              },
+            };
+          }
+          const cal = new CalendarClientV2(conn.getToken);
+          try {
+            const event = await cal.createEvent({
+              summary: input.summary,
+              description: input.description,
+              location: input.location,
+              start: { dateTime: input.start },
+              end: { dateTime: input.end },
+              attendees: input.attendees?.map((email) => ({ email })),
+            });
+            return { ok: true as const, result: event };
+          } catch (e) {
+            return {
+              ok: false as const,
+              error: {
+                code: "upstream_unavailable" as const,
+                message: e instanceof Error ? e.message : String(e),
+                retryable: true,
+              },
+            };
+          }
+        },
+      },
+
+      {
+        name: "calendar.update_event",
+        description: "Update an existing calendar event",
+        inputs: z.object({
+          eventId: z.string(),
+          summary: z.string().optional(),
+          start: z.string().optional(),
+          end: z.string().optional(),
+          description: z.string().optional(),
+        }),
+        async handler(input: {
+          eventId: string;
+          summary?: string;
+          start?: string;
+          end?: string;
+          description?: string;
+        }) {
+          const conn = await getConn();
+          if (!conn) {
+            return {
+              ok: false as const,
+              error: {
+                code: "not_found" as const,
+                message: "Google account not connected. Connect Google in Settings to use Calendar tools.",
+                retryable: false,
+              },
+            };
+          }
+          const cal = new CalendarClientV2(conn.getToken);
+          try {
+            // Build the patch object with only the fields the caller provided.
+            const patch: Record<string, unknown> = {};
+            if (input.summary !== undefined) patch.summary = input.summary;
+            if (input.description !== undefined) patch.description = input.description;
+            if (input.start !== undefined) patch.start = { dateTime: input.start };
+            if (input.end !== undefined) patch.end = { dateTime: input.end };
+            const event = await cal.updateEvent(input.eventId, patch);
+            return { ok: true as const, result: event };
+          } catch (e) {
+            return {
+              ok: false as const,
+              error: {
+                code: "upstream_unavailable" as const,
+                message: e instanceof Error ? e.message : String(e),
+                retryable: true,
+              },
+            };
+          }
+        },
+      },
+
+      {
+        name: "calendar.find_free_slots",
+        description: "Find open calendar slots in a window",
+        inputs: z.object({
+          timeMin: z.string(),
+          timeMax: z.string(),
+          durationMinutes: z.number().int().positive(),
+        }),
+        async handler(input: { timeMin: string; timeMax: string; durationMinutes: number }) {
+          const conn = await getConn();
+          if (!conn) {
+            return {
+              ok: false as const,
+              error: {
+                code: "not_found" as const,
+                message: "Google account not connected. Connect Google in Settings to use Calendar tools.",
+                retryable: false,
+              },
+            };
+          }
+          const cal = new CalendarClientV2(conn.getToken);
+          try {
+            const slots = await cal.findFreeSlots({
+              timeMin: input.timeMin,
+              timeMax: input.timeMax,
+              durationMinutes: input.durationMinutes,
+            });
+            return { ok: true as const, result: slots };
+          } catch (e) {
+            return {
+              ok: false as const,
+              error: {
+                code: "upstream_unavailable" as const,
+                message: e instanceof Error ? e.message : String(e),
+                retryable: true,
+              },
+            };
+          }
+        },
+      },
     ],
   };
-
-  return module;
 };

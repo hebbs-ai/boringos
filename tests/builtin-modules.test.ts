@@ -128,7 +128,7 @@ describe("v2 — built-in modules", () => {
       expect(slackBody.error?.code).toBe("permission_denied");
 
       // gmail.list_emails without google connector creds: graceful
-      // permission_denied — same shape as slack above.
+      // not_found (v2 path: no binding row means no connected account).
       const gmailOut = await fetch(`${server.url}/api/tools/google.gmail.list_emails`, {
         method: "POST",
         headers: auth,
@@ -137,7 +137,7 @@ describe("v2 — built-in modules", () => {
       expect(gmailOut.status).toBe(200);
       const gmailBody = await gmailOut.json() as { ok: boolean; error?: { code: string } };
       expect(gmailBody.ok).toBe(false);
-      expect(gmailBody.error?.code).toBe("permission_denied");
+      expect(gmailBody.error?.code).toBe("not_found");
 
       // copilot.start_session — fails cleanly with not_found
       // when this test tenant has no copilot agent provisioned.

@@ -54,6 +54,11 @@ export const FRAMEWORK_TABLES = [
   "document_revisions",
   "secrets",
   "activity_log",
+  // Connector SDK v2 tables. Owned by AuthManager in @boringos/core.
+  "connector_accounts",
+  "connector_oauth_apps",
+  "module_connector_bindings",
+  "connector_token_issuance",
 ] as const;
 
 export type FrameworkTable = (typeof FRAMEWORK_TABLES)[number];

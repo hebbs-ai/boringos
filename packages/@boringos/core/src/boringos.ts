@@ -1007,7 +1007,7 @@ export class BoringOS {
     // The OAuth + webhook pieces of /api/connectors stay mounted so
     // OAuth flows and 3rd-party webhooks keep working — the gating
     // is specifically the actions invocation paths.
-    const connectorApp = createConnectorRoutes(dbConn.db, eventBus, jwtSecret, callbackUrl, {
+    const connectorApp = createConnectorRoutes(dbConn.db, eventBus, callbackUrl, {
       shellOrigin: this.config.shellOrigin,
     }, authManager);
     app.route("/api/connectors", connectorApp);

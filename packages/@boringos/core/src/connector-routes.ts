@@ -71,8 +71,6 @@ export function createConnectorRoutes(
   // eventBus is reserved for future webhook routing; kept on the
   // signature so callers don't have to change.
   _eventBus: EventBus,
-  // jwtSecret is kept on the signature for backward compatibility.
-  _jwtSecret: string,
   baseUrl: string,
   opts: ConnectorRoutesOptions = {},
   authManager?: AuthManager,

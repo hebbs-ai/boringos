@@ -45,7 +45,10 @@ function listProviders(authManager?: AuthManager): ProviderEntry[] {
     kind: def.provider,
     name: PROVIDER_DISPLAY[def.provider]?.name ?? def.displayName,
     description: PROVIDER_DISPLAY[def.provider]?.description ?? "",
-    scopes: def.services.flatMap((s) => s.scopes.map((sc) => sc.scope)),
+    scopes: [
+      ...(def.requiredScopes ?? []).map((sc) => sc.scope),
+      ...def.services.flatMap((s) => s.scopes.map((sc) => sc.scope)),
+    ],
   }));
 }
 

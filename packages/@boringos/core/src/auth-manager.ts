@@ -363,13 +363,24 @@ export class AuthManager {
     const strategy = def.auth.find((a): a is OAuth2Strategy => a.type === "oauth2");
     if (!strategy) throw new Error(`No oauth2 strategy for ${provider}`);
 
+    // Merge connector-required identity/introspection scopes (e.g. Google's
+    // openid/email/profile) with caller-requested service scopes, deduped.
+    // This replaces the pre-MDK pattern of hiding a "profile" entry in
+    // services[] so the scope flattener picked it up.
+    const requiredScopes = (def.requiredScopes ?? []).map((s) => s.scope);
+    const effectiveScopes = Array.from(new Set([...requiredScopes, ...scopes]));
+
     const { clientId } = await this.resolveOAuthClient(provider, tenantId);
-    const state = createState(this.stateSecret, { tenantId, provider, scopes });
+    const state = createState(this.stateSecret, {
+      tenantId,
+      provider,
+      scopes: effectiveScopes,
+    });
     const params = new URLSearchParams({
       client_id: clientId,
       response_type: "code",
       redirect_uri: this.redirectUri(provider),
-      scope: scopes.join(" "),
+      scope: effectiveScopes.join(" "),
       state,
     });
     if (strategy.accessType) params.set("access_type", strategy.accessType);

@@ -193,4 +193,78 @@ describe("Connector SDK v2 — integration", () => {
     const token = await handle!.getToken();
     expect(token).toBe("older-token");
   }, 30_000);
+
+  it("startOAuthFlow merges requiredScopes from ConnectorDefinition, deduped", async () => {
+    // T0.1 — `requiredScopes` is the first-class replacement for the
+    // pre-MDK pattern of hiding a "profile" pseudo-service in services[].
+    // AuthManager.startOAuthFlow must always merge them into the OAuth URL.
+    const { AuthManager } = await import("@boringos/core");
+
+    process.env.REQ_CLIENT_ID = "req-id";
+    process.env.REQ_CLIENT_SECRET = "req-secret";
+
+    const tenantId = "33333333-3333-3333-3333-333333333333";
+
+    const reqConnector = {
+      provider: "test-required",
+      displayName: "Required-Scopes Test",
+      version: 1,
+      auth: [{
+        type: "oauth2" as const,
+        authorizationUrl: "https://example.invalid/authorize",
+        tokenUrl: "https://example.invalid/token",
+        clientIdEnv: "REQ_CLIENT_ID",
+        clientSecretEnv: "REQ_CLIENT_SECRET",
+      }],
+      services: [],
+      requiredScopes: [
+        { scope: "openid", description: "OIDC id token", required: true },
+        { scope: "email", description: "email claim", required: true },
+        { scope: "profile", description: "profile claim", required: true },
+      ],
+      resolveAccountId: () => "acc",
+    };
+
+    const mgr = new AuthManager(
+      dbConn.db as never,
+      "test-state-secret-req",
+      (provider: string) => `http://test/oauth/${provider}/callback`,
+    );
+    mgr.registerConnector(reqConnector);
+
+    // Caller passes only "custom-scope" plus "email" (which overlaps
+    // requiredScopes — must be deduped).
+    const { authUrl } = await mgr.startOAuthFlow(
+      "test-required",
+      tenantId,
+      ["custom-scope", "email"],
+    );
+
+    const url = new URL(authUrl);
+    const scopeParam = url.searchParams.get("scope") ?? "";
+    const scopes = scopeParam.split(" ");
+
+    expect(scopes).toContain("openid");
+    expect(scopes).toContain("email");
+    expect(scopes).toContain("profile");
+    expect(scopes).toContain("custom-scope");
+    // Deduped — "email" appears once even though it's in both lists.
+    expect(scopes.filter((s) => s === "email")).toHaveLength(1);
+  }, 10_000);
+
+  it("googleConnector advertises identity scopes via requiredScopes, not as a hidden service", async () => {
+    // T0.1 — drops the `profileService` hidden-service hack. The
+    // canonical definition must expose identity scopes ONLY through
+    // `requiredScopes`; `services` must not contain a "profile" entry.
+    const { googleConnector } = await import("@boringos/connector-google");
+
+    const serviceIds = googleConnector.services.map((s) => s.id);
+    expect(serviceIds).not.toContain("profile");
+
+    const requiredScopeStrings =
+      (googleConnector.requiredScopes ?? []).map((s) => s.scope);
+    expect(requiredScopeStrings).toContain("openid");
+    expect(requiredScopeStrings).toContain("email");
+    expect(requiredScopeStrings).toContain("profile");
+  });
 });

@@ -3,7 +3,13 @@
 // ConnectorDefinition for Google Workspace (OAuth2, multi-service).
 
 import type { ConnectorDefinition } from "@boringos/module-sdk";
-import { gmailService, calendarService, contactsService, driveService, profileService } from "./scopes.js";
+import {
+  gmailService,
+  calendarService,
+  contactsService,
+  driveService,
+  PROFILE_SCOPES,
+} from "./scopes.js";
 
 export const googleConnector: ConnectorDefinition = {
   provider: "google",
@@ -20,9 +26,12 @@ export const googleConnector: ConnectorDefinition = {
       prompt: "consent",
     },
   ],
-  // profileService is always present so OAuth always receives openid/email/profile
-  // and the id_token has identity claims for resolveAccountId.
-  services: [profileService, gmailService, calendarService, contactsService, driveService],
+  services: [gmailService, calendarService, contactsService, driveService],
+  // Identity scopes are always merged in by the host's OAuth flow so the
+  // id_token carries email/sub claims read by `resolveAccountId`. Declared
+  // here as the canonical replacement for the pre-MDK hidden "profile"
+  // pseudo-service hack.
+  requiredScopes: PROFILE_SCOPES,
   resolveAccountId: (tokenResponse) =>
     String(tokenResponse["email"] ?? tokenResponse["sub"]),
 };

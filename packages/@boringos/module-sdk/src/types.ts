@@ -699,6 +699,16 @@ export interface ConnectorDefinition {
   version?: number;
   auth: AuthStrategy[];
   services: ServiceDefinition[];
+  /**
+   * Scopes the connector ALWAYS requires regardless of which user-facing
+   * services are selected — typically identity / token-introspection scopes
+   * needed for `resolveAccountId` to work (e.g. Google's `openid email
+   * profile`). The host's OAuth flow merges these with caller-requested
+   * service scopes and deduplicates. Avoids the pre-MDK pattern of stuffing
+   * a hidden "profile" entry into `services` to piggyback on the scope
+   * flattener.
+   */
+  requiredScopes?: ScopeDefinition[];
   resolveAccountId(tokenResponse: Record<string, unknown>): string;
 }
 

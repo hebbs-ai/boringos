@@ -12,7 +12,8 @@
   },
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "license": "AGPL-3.0-or-later",
   "dependencies": {
@@ -26,7 +27,8 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "drizzle-kit": "^0.30.0",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
   },
   "description": "Database schema + migration manager for BoringOS (external Postgres; embedded dev fallback optional)",
   "repository": {

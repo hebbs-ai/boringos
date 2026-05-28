@@ -1,5 +1,12 @@
 # @boringos/agent
 
+## 0.1.15
+
+### Patch Changes
+
+- Updated dependencies [4a204a5]
+  - @boringos/module-sdk@0.8.0
+
 ## 0.1.14
 
 ### Patch Changes

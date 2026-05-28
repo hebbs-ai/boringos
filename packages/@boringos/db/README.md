@@ -103,4 +103,26 @@ Store the resulting 64-character hex string in your secret manager as `BORINGOS_
 
 **Rollback:** restore the connectors table from backup. (The encryption is one-way for any individual row, but the row's stored value is fully replaced. No in-place mutation, so a backup restore is clean.)
 
+## Connector SDK v2 migration ordering
+
+Upgrading an existing deployment from pre-v2 (plaintext `connectors` table) to v2 (encrypted `connector_accounts`) requires running two scripts in sequence:
+
+1. **Encrypt the legacy plaintext rows** with `scripts/encrypt-existing-credentials.ts` (documented above). This converts the `connectors.credentials` JSONB column from plaintext objects to encrypted strings in-place. The application code reads either shape during this window.
+
+2. **Copy rows to `connector_accounts`** with `scripts/migrate-connectors-to-accounts.ts`. This reads from the now-encrypted `connectors` table and inserts into the new multi-account schema. Both scripts are idempotent.
+
+```bash
+# Step 1
+BORINGOS_ENCRYPTION_KEY=<key> DATABASE_URL=<url> \
+  pnpm --filter @boringos/db tsx scripts/encrypt-existing-credentials.ts
+
+# Step 2
+BORINGOS_ENCRYPTION_KEY=<key> DATABASE_URL=<url> \
+  pnpm --filter @boringos/db tsx scripts/migrate-connectors-to-accounts.ts
+```
+
+After step 2 succeeds, the `connectors` table can be dropped (the v2 schema apply already does this via `DROP TABLE IF EXISTS connectors CASCADE`).
+
+**For fresh deployments** (no pre-v2 data): both scripts are no-ops and can be skipped. The schema apply creates the new tables directly.
+
 ## Part of [BoringOS](https://github.com/BoringOS-dev/boringos)

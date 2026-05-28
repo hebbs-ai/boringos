@@ -289,6 +289,13 @@ Drop these in `.env.local` at the repo root:
 ```bash
 GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=your-client-secret
+
+# Required for the Connector SDK v2 credential encryption.
+# 32 random bytes, hex or base64. Generate with:
+#   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+# Losing this key means losing access to all stored OAuth credentials,
+# with no recovery path. Store it in your secret manager in production.
+BORINGOS_ENCRYPTION_KEY=64-char-hex-string-here
 ```
 
 Restart `pnpm dev`, head to the shell's **Connectors** screen,

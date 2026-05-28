@@ -118,6 +118,72 @@ available. See `ModuleFactoryDeps` for the full set.
 
 ---
 
+## Static manifest (`module.json`) — versioning and compatibility
+
+Every packaged `.hebbsmod` bundle carries a `module.json` file at
+its root — the static counterpart to the runtime `Module` returned
+by your factory. Three version fields appear there, each with a
+distinct meaning:
+
+| Field | What it tracks | Who enforces it |
+|---|---|---|
+| `version` | **Your module's** semver (e.g. `0.3.0`). Bumped whenever you ship a new release of the module itself. The host treats `<id>@<version>` as the bundle's identity for install / uninstall and uniqueness. | `pack-hebbsmod` rejects non-semver values; the host's upload route rejects re-uploads of an existing `<id>@<version>` unless `?force=true`. |
+| `minFrameworkVersion` | The **lowest** Hebbs framework version your module can run on. Examples: `0.1.0`, `0.2.0`. Set this when you start using a feature that requires a recent framework — e.g. `requiredScopes` on `ConnectorDefinition` (framework `0.1.10+`), or the typed `ConnectorTokenHandle` (`0.2.0+`). | Host upload route. A bundle with `minFrameworkVersion: 99.0.0` against a host running `0.1.10` is rejected with `400 incompatible_framework — module requires framework >= 99.0.0, host is 0.1.10` **before** the bundle is moved into the module store. |
+| `sdkVersion` | The `@boringos/module-sdk` version the module was built against. Informational — not currently used to gate installs. Useful for `hebbs doctor`-style tooling that wants to suggest upgrades. | Tooling only; the host doesn't enforce. |
+
+### When to bump each
+
+- **`version`** — every release. Semver applies: a new tool name or
+  a breaking input change is a **major** bump; an additive field is
+  **minor**; a bugfix-only release is **patch**.
+- **`minFrameworkVersion`** — only when you start consuming a newer
+  framework feature. Bump it to the lowest framework version that
+  exposes the feature you need. Leave it absent if your module runs
+  against any supported framework.
+- **`sdkVersion`** — automated at pack time by future scaffolders;
+  authors don't normally touch it.
+
+### Manifest is derived from the factory at pack time
+
+`pack-hebbsmod` dynamic-imports your bundled entry, calls the
+factory with a stub deps object, and overrides the on-disk
+`module.json`'s **runtime** fields (`id`, `name`, `version`,
+`description`, `kind`, `dependsOn`, `provides`, `defaultInstall`)
+from the resulting Module. Pack-time-only fields (`entry`, `ui`,
+`publisher`, `license`, `minFrameworkVersion`, `sdkVersion`) come
+from `module.json` unchanged.
+
+That means `src/module.ts`'s `version` is the source of truth — if
+the file on disk drifts from the factory, the bundled `module.json`
+carries the factory's version and a drift warning is printed:
+
+```
+[pack-hebbsmod] manifest drift detected (runtime factory wins):
+  version: "0.2.0" → "0.3.0"
+```
+
+### Programmatic schema
+
+The `module.json` shape is published as a zod schema:
+
+```ts
+import {
+  ManifestSchema,
+  parseManifest,
+  checkMinFrameworkVersion,
+} from "@boringos/module-sdk";
+
+const m = parseManifest(JSON.parse(readFileSync("module.json", "utf8")));
+const compat = checkMinFrameworkVersion(m, "0.1.10");
+if (!compat.ok) throw new Error(compat.reason);
+```
+
+Use these helpers in custom scaffolders, CI lint scripts, or any
+tool that consumes a `module.json`. The schema is `passthrough`, so
+extra fields are preserved.
+
+---
+
 ## Dependencies
 
 `dependsOn` entries are either concrete or capability-based.

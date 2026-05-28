@@ -4,7 +4,6 @@ export type {
   DriveAppConfig,
   LogConfig,
   AppContext,
-  ConnectorDefinition,
   SkillDefinition,
   SkillSource,
   PersonaBundle,
@@ -13,6 +12,10 @@ export type {
   StartedServer,
   TestInstance,
 } from "./types.js";
+// The canonical ConnectorDefinition lives in @boringos/module-sdk now.
+// Re-export it here for convenience so consumers of @boringos/core can
+// continue importing ConnectorDefinition from the same module.
+export type { ConnectorDefinition } from "@boringos/module-sdk";
 
 export { BoringOS } from "./boringos.js";
 
@@ -23,13 +26,14 @@ export { createMemoryModule } from "./modules/memory.js";
 export { createDriveModule } from "./modules/drive.js";
 export { createWorkflowModule } from "./modules/workflow.js";
 export { createInboxModule } from "./modules/inbox.js";
-export { createSlackModule, getSlackToken } from "./modules/slack.js";
-export { createGoogleModule, getGoogleToken } from "./modules/google.js";
-export { getConnectorTokenForTenant } from "./connector-tokens.js";
+export { AuthManager } from "./auth-manager.js";
+export { tenantContext, requireTenantId } from "./tenant-context.js";
 export { createCopilotModule } from "./modules/copilot.js";
 export { createTriageModule } from "./modules/triage.js";
 export { createInboxTriageModule } from "./modules/inbox-triage.js";
 export { createInboxReplierModule } from "./modules/inbox-replier.js";
+export { createGoogleModule } from "./modules/google.js";
+export { createSlackModule } from "./modules/slack.js";
 
 // Re-export key types from sub-packages for convenience
 export type { MemoryProvider } from "@boringos/memory";

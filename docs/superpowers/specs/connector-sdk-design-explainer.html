@@ -1,0 +1,1021 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Connector SDK Design - Proposal vs Review</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface-2: #1c2129;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --red: #f85149;
+    --orange: #d29922;
+    --purple: #bc8cff;
+    --pink: #f778ba;
+    --cyan: #76e3ea;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 2rem;
+  }
+
+  .container { max-width: 1200px; margin: 0 auto; }
+
+  h1 {
+    font-size: 2.2rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+    background: linear-gradient(135deg, var(--accent), var(--purple));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .subtitle {
+    color: var(--text-muted);
+    font-size: 1.1rem;
+    margin-bottom: 3rem;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 1.5rem;
+  }
+
+  h2 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin: 3rem 0 1.5rem;
+    color: var(--accent);
+  }
+
+  h3 {
+    font-size: 1.15rem;
+    font-weight: 600;
+    margin: 1.5rem 0 0.75rem;
+    color: var(--text);
+  }
+
+  p { margin-bottom: 1rem; color: var(--text-muted); }
+
+  .analogy-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 2rem;
+    margin: 1.5rem 0;
+  }
+
+  .analogy-card .emoji {
+    font-size: 2.5rem;
+    margin-bottom: 0.75rem;
+    display: block;
+  }
+
+  .analogy-card .title {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 0.5rem;
+  }
+
+  .analogy-card .desc {
+    color: var(--text-muted);
+    font-size: 0.95rem;
+  }
+
+  /* Comparison layout */
+  .comparison {
+    display: grid;
+    grid-template-columns: 1fr 60px 1fr;
+    gap: 0;
+    margin: 2rem 0;
+    align-items: stretch;
+  }
+
+  .comparison-col {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.5rem;
+  }
+
+  .comparison-col.v1 { border-color: var(--orange); }
+  .comparison-col.v2 { border-color: var(--green); }
+
+  .comparison-arrow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    color: var(--text-muted);
+  }
+
+  .tag {
+    display: inline-block;
+    padding: 0.15rem 0.6rem;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 1rem;
+  }
+
+  .tag.v1 { background: rgba(210, 153, 34, 0.15); color: var(--orange); border: 1px solid rgba(210, 153, 34, 0.3); }
+  .tag.v2 { background: rgba(63, 185, 80, 0.15); color: var(--green); border: 1px solid rgba(63, 185, 80, 0.3); }
+  .tag.issue { background: rgba(248, 81, 73, 0.15); color: var(--red); border: 1px solid rgba(248, 81, 73, 0.3); }
+  .tag.fixed { background: rgba(63, 185, 80, 0.15); color: var(--green); border: 1px solid rgba(63, 185, 80, 0.3); }
+
+  /* Diagram boxes */
+  .diagram {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 0.85rem;
+    overflow-x: auto;
+  }
+
+  .diagram .box {
+    display: inline-block;
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    padding: 0.5rem 1rem;
+    margin: 0.25rem;
+    background: var(--surface);
+    font-size: 0.8rem;
+  }
+
+  .diagram .box.highlight { border-color: var(--accent); color: var(--accent); }
+  .diagram .box.green { border-color: var(--green); color: var(--green); }
+  .diagram .box.orange { border-color: var(--orange); color: var(--orange); }
+  .diagram .box.red { border-color: var(--red); color: var(--red); }
+  .diagram .box.purple { border-color: var(--purple); color: var(--purple); }
+
+  .diagram .arrow {
+    display: inline-block;
+    color: var(--text-muted);
+    margin: 0 0.5rem;
+    font-size: 1rem;
+  }
+
+  /* Flow diagrams with SVG */
+  .flow-container {
+    margin: 1.5rem 0;
+    overflow-x: auto;
+  }
+
+  .flow-container svg {
+    display: block;
+    margin: 0 auto;
+  }
+
+  /* Issue cards */
+  .issue-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+
+  .issue-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.25rem;
+    transition: border-color 0.2s;
+  }
+
+  .issue-card:hover { border-color: var(--accent); }
+
+  .issue-card .issue-num {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    margin-bottom: 0.25rem;
+  }
+
+  .issue-card .issue-title {
+    font-weight: 600;
+    font-size: 0.95rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .issue-card .issue-desc {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+  }
+
+  .severity-bar {
+    height: 3px;
+    border-radius: 2px;
+    margin-bottom: 0.75rem;
+  }
+
+  .severity-bar.high { background: var(--red); }
+  .severity-bar.medium { background: var(--orange); }
+  .severity-bar.low { background: var(--text-muted); }
+
+  /* Phase timeline */
+  .timeline {
+    position: relative;
+    margin: 2rem 0;
+    padding-left: 3rem;
+  }
+
+  .timeline::before {
+    content: '';
+    position: absolute;
+    left: 14px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--border);
+  }
+
+  .timeline-item {
+    position: relative;
+    margin-bottom: 2rem;
+    padding: 1.25rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+
+  .timeline-item::before {
+    content: '';
+    position: absolute;
+    left: -2.35rem;
+    top: 1.5rem;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+    background: var(--bg);
+  }
+
+  .timeline-item.done::before { background: var(--green); border-color: var(--green); }
+
+  .timeline-item .phase-label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--accent);
+    margin-bottom: 0.35rem;
+  }
+
+  .timeline-item .phase-title {
+    font-size: 1.05rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+  }
+
+  .timeline-item .phase-risk {
+    display: inline-block;
+    padding: 0.1rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    margin-left: 0.5rem;
+  }
+
+  .phase-risk.none { background: rgba(63, 185, 80, 0.15); color: var(--green); }
+  .phase-risk.low { background: rgba(63, 185, 80, 0.15); color: var(--green); }
+  .phase-risk.medium { background: rgba(210, 153, 34, 0.15); color: var(--orange); }
+  .phase-risk.conditional { background: rgba(188, 140, 255, 0.15); color: var(--purple); }
+
+  .timeline-item ul {
+    margin: 0.5rem 0 0 1.25rem;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+  }
+
+  .timeline-item li { margin-bottom: 0.3rem; }
+
+  /* Code comparison */
+  .code-compare {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+
+  .code-block {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 0.8rem;
+    line-height: 1.7;
+    overflow-x: auto;
+    white-space: pre;
+  }
+
+  .code-block .label {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    display: block;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .code-block .label.before { color: var(--orange); }
+  .code-block .label.after { color: var(--green); }
+
+  .code-block .hl-red { color: var(--red); }
+  .code-block .hl-green { color: var(--green); }
+  .code-block .hl-muted { color: var(--text-muted); }
+  .code-block .hl-accent { color: var(--accent); }
+  .code-block .hl-purple { color: var(--purple); }
+
+  .code-block .strikethrough {
+    text-decoration: line-through;
+    color: var(--red);
+    opacity: 0.6;
+  }
+
+  /* Scorecard */
+  .scorecard {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.5rem 0;
+    font-size: 0.9rem;
+  }
+
+  .scorecard th {
+    text-align: left;
+    padding: 0.75rem 1rem;
+    border-bottom: 2px solid var(--border);
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .scorecard td {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+  }
+
+  .scorecard tr:hover td { background: var(--surface); }
+
+  .dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 0.5rem;
+  }
+
+  .dot.high { background: var(--red); }
+  .dot.medium { background: var(--orange); }
+  .dot.low { background: var(--text-muted); }
+
+  /* Section divider */
+  .divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 3rem 0;
+  }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .comparison { grid-template-columns: 1fr; gap: 1rem; }
+    .comparison-arrow { transform: rotate(90deg); padding: 0.5rem; }
+    .code-compare { grid-template-columns: 1fr; }
+    .issue-grid { grid-template-columns: 1fr; }
+    body { padding: 1rem; }
+    h1 { font-size: 1.6rem; }
+  }
+
+  .toc {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.5rem 2rem;
+    margin: 2rem 0;
+  }
+
+  .toc ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .toc li {
+    padding: 0.3rem 0;
+  }
+
+  .toc a {
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 0.9rem;
+  }
+
+  .toc a:hover { text-decoration: underline; }
+
+  .callout {
+    background: rgba(88, 166, 255, 0.08);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 8px 8px 0;
+    padding: 1rem 1.25rem;
+    margin: 1.5rem 0;
+    font-size: 0.9rem;
+    color: var(--text-muted);
+  }
+
+  .callout strong { color: var(--text); }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>Connector SDK Design</h1>
+<p class="subtitle">What we proposed, what was reviewed, and how the design evolved. A visual walkthrough for the team.</p>
+
+<div class="toc">
+  <h3 style="margin-top:0; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted);">Contents</h3>
+  <ul>
+    <li><a href="#big-picture">1. The Big Picture (Analogy)</a></li>
+    <li><a href="#what-proposed">2. What We Proposed (v1)</a></li>
+    <li><a href="#what-reviewed">3. What the Peer Review Found</a></li>
+    <li><a href="#how-evolved">4. How the Design Evolved (v2)</a></li>
+    <li><a href="#five-fixes">5. The Five Key Fixes (Visual)</a></li>
+    <li><a href="#new-timeline">6. New Phased Timeline</a></li>
+    <li><a href="#scorecard">7. Full Scorecard</a></li>
+  </ul>
+</div>
+
+<!-- ==================== SECTION 1 ==================== -->
+<h2 id="big-picture">1. The Big Picture</h2>
+
+<div class="analogy-card">
+  <span class="emoji">📱</span>
+  <div class="title">Think of BoringOS as Android</div>
+  <div class="desc">
+    <strong>The Framework = Android OS.</strong> It handles the heavy lifting: authentication, permissions, storage, app lifecycle.<br><br>
+    <strong>Connector SDK = Android SDK libraries.</strong> Like how Android gives you <code>CameraManager</code> and <code>LocationManager</code>, we give you <code>GmailClient</code> and <code>CalendarClient</code>. Pure libraries. No OS internals exposed.<br><br>
+    <strong>Modules = Android Apps.</strong> Each app (module) is a self-contained lego block. Instagram and WhatsApp both use the Camera SDK, but they build completely different experiences. Similarly, a Productivity Module and an EA Module both use <code>GmailClient</code>, but their tools do completely different things.<br><br>
+    <strong>Permissions = Runtime, not install-time.</strong> Just like Android asks for camera permission only when you tap the camera button, our modules check scopes only when they actually need them.
+  </div>
+</div>
+
+<div class="analogy-card">
+  <span class="emoji">🔌</span>
+  <div class="title">Connectors are Power Adapters</div>
+  <div class="desc">
+    You travel to different countries (Google, Slack, GitHub, Microsoft). Each country has different power sockets (OAuth endpoints, token formats, scope systems). A connector is the <strong>universal adapter</strong> -- same shape on the module's side, different prongs on the provider's side.<br><br>
+    Every connector implements one interface: <code>ConnectorDefinition</code>. Learn the shape once, plug into anything.
+  </div>
+</div>
+
+<!-- ==================== SECTION 2 ==================== -->
+<h2 id="what-proposed">2. What We Proposed (v1)</h2>
+
+<p>The original design had five core ideas:</p>
+
+<div class="flow-container">
+  <svg width="960" height="320" viewBox="0 0 960 320" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <!-- Background boxes -->
+    <rect x="20" y="20" width="280" height="120" rx="12" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+    <rect x="340" y="20" width="280" height="120" rx="12" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+    <rect x="660" y="20" width="280" height="120" rx="12" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+    <rect x="180" y="180" width="280" height="120" rx="12" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+    <rect x="500" y="180" width="280" height="120" rx="12" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+
+    <!-- Labels -->
+    <text x="160" y="55" text-anchor="middle" fill="#58a6ff" font-size="13" font-weight="600">1. Universal Interface</text>
+    <text x="160" y="80" text-anchor="middle" fill="#8b949e" font-size="11">ConnectorDefinition</text>
+    <text x="160" y="100" text-anchor="middle" fill="#8b949e" font-size="11">One shape for all providers</text>
+    <text x="160" y="120" text-anchor="middle" fill="#8b949e" font-size="11">Google, Slack, GitHub, ...</text>
+
+    <text x="480" y="55" text-anchor="middle" fill="#58a6ff" font-size="13" font-weight="600">2. Typed Clients</text>
+    <text x="480" y="80" text-anchor="middle" fill="#8b949e" font-size="11">GmailClient.sendEmail()</text>
+    <text x="480" y="100" text-anchor="middle" fill="#8b949e" font-size="11">replaces stringly-typed</text>
+    <text x="480" y="120" text-anchor="middle" fill="#8b949e" font-size="11">executeAction("send_email")</text>
+
+    <text x="800" y="55" text-anchor="middle" fill="#58a6ff" font-size="13" font-weight="600">3. Multi-Account</text>
+    <text x="800" y="80" text-anchor="middle" fill="#8b949e" font-size="11">Multiple Google accounts</text>
+    <text x="800" y="100" text-anchor="middle" fill="#8b949e" font-size="11">per tenant, assigned to</text>
+    <text x="800" y="120" text-anchor="middle" fill="#8b949e" font-size="11">modules via UI</text>
+
+    <text x="320" y="215" text-anchor="middle" fill="#58a6ff" font-size="13" font-weight="600">4. Runtime Permissions</text>
+    <text x="320" y="240" text-anchor="middle" fill="#8b949e" font-size="11">Android-style: check + request</text>
+    <text x="320" y="260" text-anchor="middle" fill="#8b949e" font-size="11">scopes when needed</text>
+    <text x="320" y="280" text-anchor="middle" fill="#8b949e" font-size="11">not at install time</text>
+
+    <text x="640" y="215" text-anchor="middle" fill="#58a6ff" font-size="13" font-weight="600">5. Auth Manager</text>
+    <text x="640" y="240" text-anchor="middle" fill="#8b949e" font-size="11">Centralized OAuth, token</text>
+    <text x="640" y="260" text-anchor="middle" fill="#8b949e" font-size="11">refresh, encryption, audit</text>
+    <text x="640" y="280" text-anchor="middle" fill="#8b949e" font-size="11">replaces scattered logic</text>
+
+    <!-- Connectors -->
+    <line x1="300" y1="80" x2="340" y2="80" stroke="#30363d" stroke-width="1.5"/>
+    <line x1="620" y1="80" x2="660" y2="80" stroke="#30363d" stroke-width="1.5"/>
+    <line x1="300" y1="120" x2="320" y2="180" stroke="#30363d" stroke-width="1.5"/>
+    <line x1="620" y1="120" x2="640" y2="180" stroke="#30363d" stroke-width="1.5"/>
+  </svg>
+</div>
+
+<!-- ==================== SECTION 3 ==================== -->
+<h2 id="what-reviewed">3. What the Peer Review Found</h2>
+
+<p>The review identified 15 issues. Three are high severity (correctness/architecture), one is a sequencing priority, the rest are refinements.</p>
+
+<div class="issue-grid">
+  <div class="issue-card">
+    <div class="severity-bar high"></div>
+    <div class="issue-num">ISSUE #2</div>
+    <div class="issue-title">Token refresh regression</div>
+    <div class="issue-desc">
+      <strong>The bug:</strong> Spec deletes <code>runWithRefresh</code> but hands clients a frozen <code>token: string</code>. If a Gmail batch runs for 90 seconds and the token expires mid-flight, it silently fails. No retry, no refresh.<br><br>
+      <strong>Analogy:</strong> Like giving a driver a gas card that expires in 1 hour, but no way to refuel. Works for short trips, breaks on long ones.
+    </div>
+  </div>
+
+  <div class="issue-card">
+    <div class="severity-bar high"></div>
+    <div class="issue-num">ISSUE #3</div>
+    <div class="issue-title">Blocking requestScopes jams the queue</div>
+    <div class="issue-desc">
+      <strong>The bug:</strong> <code>requestScopes()</code> blocks for up to 5 minutes waiting on a human click. The default agent queue is serial (concurrency = 1). One blocked tool = every other agent waiting.<br><br>
+      <strong>Analogy:</strong> Like a single-lane drive-through where one car parks at the window to make a phone call. Everyone behind is stuck.
+    </div>
+  </div>
+
+  <div class="issue-card">
+    <div class="severity-bar high"></div>
+    <div class="issue-num">ISSUE #4</div>
+    <div class="issue-title">accountId pollutes every tool</div>
+    <div class="issue-desc">
+      <strong>The bug:</strong> Every tool requires <code>accountId: z.string()</code> in its schema. But the <code>module_connector_bindings</code> table already resolves accounts server-side. The agent has to know something it shouldn't.<br><br>
+      <strong>Analogy:</strong> Like requiring every restaurant customer to specify which power outlet their table uses. The building's wiring handles that.
+    </div>
+  </div>
+
+  <div class="issue-card">
+    <div class="severity-bar high"></div>
+    <div class="issue-num">ISSUE #14</div>
+    <div class="issue-title">Encryption should ship first</div>
+    <div class="issue-desc">
+      <strong>The gap:</strong> OAuth tokens are stored as plaintext JSONB in the database today. This is a live security gap that depends on zero redesign work. Bundling it with the SDK redesign delays the fix unnecessarily.
+    </div>
+  </div>
+
+  <div class="issue-card">
+    <div class="severity-bar medium"></div>
+    <div class="issue-num">ISSUE #5</div>
+    <div class="issue-title">Manifest vs runtime authority unclear</div>
+    <div class="issue-desc">Module declares <code>connectors</code> in manifest AND checks scopes at runtime. Which one actually governs access? Never stated explicitly.</div>
+  </div>
+
+  <div class="issue-card">
+    <div class="severity-bar medium"></div>
+    <div class="issue-num">ISSUE #7 + #8</div>
+    <div class="issue-title">Skills + tool names not addressed</div>
+    <div class="issue-desc">Every module ships skill files that teach agents tool names. Changing client APIs without updating skills breaks live agents. Agent-facing tool names must be explicitly preserved.</div>
+  </div>
+
+  <div class="issue-card">
+    <div class="severity-bar medium"></div>
+    <div class="issue-num">ISSUE #12 + #13</div>
+    <div class="issue-title">Two specs in one, all breaks at once</div>
+    <div class="issue-desc">Safe SDK work (typed clients) is bundled with risky redesign (multi-account, scope upgrades). All breaking changes land simultaneously. Should be phased so safe work ships without waiting on unproven work.</div>
+  </div>
+
+  <div class="issue-card">
+    <div class="severity-bar low"></div>
+    <div class="issue-num">ISSUE #15</div>
+    <div class="issue-title">"kind" name collision</div>
+    <div class="issue-desc"><code>Module.kind</code> = "connector" | "module" | "hybrid". <code>ConnectorDefinition.kind</code> = "google" | "slack". Same field name, different meanings. Minor but confusing.</div>
+  </div>
+</div>
+
+<!-- ==================== SECTION 4 ==================== -->
+<h2 id="how-evolved">4. How the Design Evolved (v1 to v2)</h2>
+
+<div class="callout">
+  <strong>The core vision is unchanged.</strong> Universal connector interface, typed clients, modules as lego blocks, Android-style permissions. What changed is the <em>mechanics</em> -- how tokens refresh, how scopes upgrade, how accounts resolve, and in what order we ship.
+</div>
+
+<!-- ==================== SECTION 5 ==================== -->
+<h2 id="five-fixes">5. The Five Key Fixes</h2>
+
+<!-- Fix 1: Token Refresh -->
+<h3>Fix 1: Token Provider, not Static String</h3>
+
+<div class="comparison">
+  <div class="comparison-col v1">
+    <span class="tag v1">v1 -- Broken</span>
+    <div class="code-block">
+<span class="label before">Proposal</span>
+<span class="hl-muted">// Token is a frozen string</span>
+const token = await deps.<span class="hl-accent">getConnectorToken</span>(
+  "google", accountId, "my-module"
+);
+
+<span class="hl-muted">// Client gets a snapshot -- if it expires</span>
+<span class="hl-muted">// mid-flight, the call fails silently</span>
+const gmail = new GmailClient(<span class="hl-red">token.accessToken</span>);
+
+<span class="hl-muted">// 90 seconds later... 401. No retry.</span>
+await gmail.listMessages(); <span class="hl-red">// FAILS</span></div>
+  </div>
+
+  <div class="comparison-arrow">&rarr;</div>
+
+  <div class="comparison-col v2">
+    <span class="tag v2">v2 -- Fixed</span>
+    <div class="code-block">
+<span class="label after">Revised</span>
+<span class="hl-muted">// Token is a provider function</span>
+const conn = await deps.<span class="hl-accent">getConnectorToken</span>(
+  "google", "my-module"
+);
+
+<span class="hl-muted">// Client calls getToken() on each request</span>
+<span class="hl-muted">// and retries on 401 with a fresh token</span>
+const gmail = new GmailClient(<span class="hl-green">conn.getToken</span>);
+
+<span class="hl-muted">// 90 seconds later... auto-refresh.</span>
+await gmail.listMessages(); <span class="hl-green">// WORKS</span></div>
+  </div>
+</div>
+
+<div class="analogy-card">
+  <span class="emoji">⛽</span>
+  <div class="title">Analogy: Gas card vs. fuel account</div>
+  <div class="desc">
+    <strong>v1</strong> gave you a pre-paid gas card with a fixed balance. If the trip was longer than expected, you're stranded.<br>
+    <strong>v2</strong> gives you a fuel account that auto-refills. The car checks the balance before each fill-up and tops up if needed. Same destination, no stranding.
+  </div>
+</div>
+
+<!-- Fix 2: Scope Upgrades -->
+<h3>Fix 2: Approval Flow, not Blocking Promise</h3>
+
+<div class="comparison">
+  <div class="comparison-col v1">
+    <span class="tag v1">v1 -- Jams the queue</span>
+    <div class="code-block">
+<span class="label before">Proposal</span>
+<span class="hl-muted">// Tool BLOCKS for up to 5 minutes</span>
+<span class="hl-muted">// waiting for user to click consent</span>
+const result = await deps.<span class="hl-red">requestScopes</span>(
+  "google", accountId, missingScopes
+);
+
+<span class="hl-muted">// Meanwhile, the serial queue is frozen.</span>
+<span class="hl-muted">// Every other agent waits.</span>
+<span class="hl-muted">//</span>
+<span class="hl-muted">// Queue: [BLOCKED] [waiting] [waiting]</span></div>
+  </div>
+
+  <div class="comparison-arrow">&rarr;</div>
+
+  <div class="comparison-col v2">
+    <span class="tag v2">v2 -- Non-blocking</span>
+    <div class="code-block">
+<span class="label after">Revised</span>
+<span class="hl-muted">// Tool returns immediately with error</span>
+return {
+  ok: false,
+  error: <span class="hl-green">"needs_scope"</span>,
+  result: { missing, consentUrl }
+};
+
+<span class="hl-muted">// Agent creates approval task (existing HITL)</span>
+<span class="hl-muted">// User grants scope in browser</span>
+<span class="hl-muted">// Agent rewakes, retries -- scope now granted</span>
+<span class="hl-muted">//</span>
+<span class="hl-muted">// Queue: [done] [running] [running]</span></div>
+  </div>
+</div>
+
+<div class="analogy-card">
+  <span class="emoji">🏦</span>
+  <div class="title">Analogy: Bank teller vs. ATM + callback</div>
+  <div class="desc">
+    <strong>v1</strong> was like a bank teller who freezes the entire line to call your spouse for wire transfer approval. Everyone waits.<br>
+    <strong>v2</strong> is like the teller saying "you need approval -- here's a form, come back when it's signed." Next customer, please. When you return with the signed form, you go right back to the window.
+  </div>
+</div>
+
+<!-- Fix 3: Server-side Account Resolution -->
+<h3>Fix 3: Server Resolves the Account</h3>
+
+<div class="comparison">
+  <div class="comparison-col v1">
+    <span class="tag v1">v1 -- Agent must know</span>
+    <div class="code-block">
+<span class="label before">Proposal</span>
+<span class="hl-muted">// Every tool requires accountId</span>
+inputs: z.object({
+  <span class="hl-red">accountId: z.string()</span>,
+  maxResults: z.number(),
+})
+
+<span class="hl-muted">// Agent has to pick which account</span>
+<span class="hl-muted">// Pollutes every tool schema</span>
+deps.getConnectorToken(
+  "google", <span class="hl-red">input.accountId</span>, "my-mod"
+);</div>
+  </div>
+
+  <div class="comparison-arrow">&rarr;</div>
+
+  <div class="comparison-col v2">
+    <span class="tag v2">v2 -- Server resolves</span>
+    <div class="code-block">
+<span class="label after">Revised</span>
+<span class="hl-muted">// No accountId in tool inputs</span>
+inputs: z.object({
+  maxResults: z.number(),
+})
+
+<span class="hl-muted">// Auth manager resolves from binding:</span>
+<span class="hl-muted">// (tenantId, moduleId, provider) -> accountId</span>
+deps.getConnectorToken(
+  "google", <span class="hl-green">"my-mod"</span>
+);</div>
+  </div>
+</div>
+
+<div class="analogy-card">
+  <span class="emoji">🏨</span>
+  <div class="title">Analogy: Hotel room keys</div>
+  <div class="desc">
+    <strong>v1</strong> was like a hotel where every time you use the elevator, you have to type your room number. Why? The hotel already knows which room you're in from your keycard.<br>
+    <strong>v2</strong> is like tapping your keycard -- the system resolves your room, floor, and access rights automatically. The user configured the binding (checked in), the system handles the rest.
+  </div>
+</div>
+
+<!-- Fix 4: Naming -->
+<h3>Fix 4: "provider" not "kind"</h3>
+
+<div class="comparison">
+  <div class="comparison-col v1">
+    <span class="tag v1">v1 -- Confusing</span>
+    <div class="code-block">
+<span class="label before">Proposal</span>
+<span class="hl-muted">// Module.kind = "connector" | "module"</span>
+<span class="hl-muted">// ConnectorDefinition.kind = "google"</span>
+<span class="hl-muted">// Same name, different meaning!</span>
+
+Module { <span class="hl-red">kind</span>: "connector" }
+ConnectorDef { <span class="hl-red">kind</span>: "google" }</div>
+  </div>
+
+  <div class="comparison-arrow">&rarr;</div>
+
+  <div class="comparison-col v2">
+    <span class="tag v2">v2 -- Clear</span>
+    <div class="code-block">
+<span class="label after">Revised</span>
+<span class="hl-muted">// Module.kind = what type of module</span>
+<span class="hl-muted">// ConnectorDef.provider = which service</span>
+<span class="hl-muted">// No collision</span>
+
+Module { <span class="hl-accent">kind</span>: "connector" }
+ConnectorDef { <span class="hl-green">provider</span>: "google" }</div>
+  </div>
+</div>
+
+<!-- Fix 5: Phased Delivery -->
+<h3>Fix 5: Ship Safe Work First</h3>
+
+<div class="comparison">
+  <div class="comparison-col v1">
+    <span class="tag v1">v1 -- Big bang</span>
+    <div class="code-block">
+<span class="label before">Proposal (4 phases, all risky)</span>
+Phase 1: Schema + Auth Manager
+Phase 2: Connector Packages
+Phase 3: Built-in Modules
+Phase 4: Multi-Account UI
+
+<span class="hl-red">All breaking changes land together</span>
+<span class="hl-red">Safe work blocked by risky work</span>
+<span class="hl-red">Encryption bundled with redesign</span></div>
+  </div>
+
+  <div class="comparison-arrow">&rarr;</div>
+
+  <div class="comparison-col v2">
+    <span class="tag v2">v2 -- Incremental</span>
+    <div class="code-block">
+<span class="label after">Revised (4 phases, de-risked)</span>
+Phase 0: <span class="hl-green">Encryption (standalone)</span>
+Phase 1: <span class="hl-green">Typed clients (additive)</span>
+Phase 2: <span class="hl-accent">Auth manager + migration</span>
+Phase 3: <span class="hl-purple">Multi-account UI (if needed)</span>
+
+<span class="hl-green">Safe work ships independently</span>
+<span class="hl-green">Deprecation bridge for executeAction</span>
+<span class="hl-green">Security gap closed immediately</span></div>
+  </div>
+</div>
+
+<!-- ==================== SECTION 6 ==================== -->
+<h2 id="new-timeline">6. New Phased Timeline</h2>
+
+<div class="timeline">
+  <div class="timeline-item">
+    <div class="phase-label">Phase 0 <span class="phase-risk none">No Risk</span></div>
+    <div class="phase-title">Credential Encryption</div>
+    <ul>
+      <li>Encrypt <code>credentials</code> JSONB at rest (current <code>connectors</code> table)</li>
+      <li>Add <code>BORINGOS_ENCRYPTION_KEY</code> env var</li>
+      <li>Migration script for existing plaintext rows</li>
+      <li>Zero API changes, zero module impact</li>
+    </ul>
+  </div>
+
+  <div class="timeline-item">
+    <div class="phase-label">Phase 1 <span class="phase-risk low">Low Risk</span></div>
+    <div class="phase-title">ConnectorDefinition + Typed Clients</div>
+    <ul>
+      <li>Add types to <code>@boringos/module-sdk</code> (additive)</li>
+      <li>Add typed methods to <code>GmailClient</code>, <code>CalendarClient</code>, <code>SlackClient</code></li>
+      <li>Keep <code>executeAction</code> as deprecated (backward compatible)</li>
+      <li>Add <code>ConnectorDefinition</code> exports to connector packages</li>
+      <li>Update skill files (<code>gmail.md</code>, <code>calendar.md</code>)</li>
+      <li>Agent-facing tool names unchanged</li>
+    </ul>
+  </div>
+
+  <div class="timeline-item">
+    <div class="phase-label">Phase 2 <span class="phase-risk medium">Medium Risk</span></div>
+    <div class="phase-title">Auth Manager + Schema Migration</div>
+    <ul>
+      <li>New tables: <code>connector_accounts</code>, <code>connector_oauth_apps</code>, <code>module_connector_bindings</code></li>
+      <li>Build <code>AuthManager</code> with binding-based account resolution</li>
+      <li>Token-provider function replaces <code>runWithRefresh</code></li>
+      <li>Built-in modules migrate to <code>deps.getConnectorToken</code></li>
+      <li>Remove deprecated <code>executeAction</code></li>
+      <li>Remove hardcoded <code>OAUTH_PROVIDERS</code>, <code>loadGoogleCreds</code>, etc.</li>
+    </ul>
+  </div>
+
+  <div class="timeline-item">
+    <div class="phase-label">Phase 3 <span class="phase-risk conditional">Only If Needed</span></div>
+    <div class="phase-title">Multi-Account UI + Scope UX</div>
+    <ul>
+      <li>Shell UI for multiple accounts per connector</li>
+      <li>Module settings for account bindings</li>
+      <li>Scope consent integrated with approval flow</li>
+      <li>Ships only when real demand exists</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ==================== SECTION 7 ==================== -->
+<h2 id="scorecard">7. Full Scorecard</h2>
+
+<table class="scorecard">
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>Issue</th>
+      <th>Severity</th>
+      <th>Verdict</th>
+      <th>Action in v2</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td>"Buried in core" framing</td>
+      <td><span class="dot low"></span>Low</td>
+      <td>Partially valid</td>
+      <td>Tightened overview: clients exist, integration contract is buried</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>Token refresh regression</td>
+      <td><span class="dot high"></span>High</td>
+      <td>Valid</td>
+      <td>Clients accept <code>getToken</code> function, retry on 401</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>Blocking requestScopes</td>
+      <td><span class="dot high"></span>High</td>
+      <td>Valid</td>
+      <td>Removed. Scope upgrades via existing approval primitive</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td>accountId in every tool</td>
+      <td><span class="dot high"></span>High</td>
+      <td>Valid</td>
+      <td>Server-side binding resolution. Optional accountId override only</td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td>Manifest vs runtime authority</td>
+      <td><span class="dot medium"></span>Medium</td>
+      <td>Valid</td>
+      <td>Explicit: manifest = advisory, checkScopes = authoritative</td>
+    </tr>
+    <tr>
+      <td>6</td>
+      <td>Blocking call to all modules</td>
+      <td><span class="dot low"></span>Moot</td>
+      <td>N/A</td>
+      <td>Resolved by fixing #3</td>
+    </tr>
+    <tr>
+      <td>7</td>
+      <td>Skills not addressed</td>
+      <td><span class="dot medium"></span>Medium</td>
+      <td>Valid</td>
+      <td>Skill file updates added to Phase 1 and Phase 2</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td>Tool name stability</td>
+      <td><span class="dot medium"></span>Medium</td>
+      <td>Valid</td>
+      <td>All agent-facing tool names explicitly preserved</td>
+    </tr>
+    <tr>
+      <td>9</td>
+      <td>Agent account selection</td>
+      <td><span class="dot medium"></span>Medium</td>
+      <td>Valid</td>
+      <td>Resolved by fixing #4 (server-side resolution)</td>
+    </tr>
+    <tr>
+      <td>10</td>
+      <td>Interface versioning</td>
+      <td><span class="dot low"></span>Low</td>
+      <td>Fair</td>
+      <td>Added <code>version?: number</code> to ConnectorDefinition</td>
+    </tr>
+    <tr>
+      <td>11</td>
+      <td>Multi-account demand</td>
+      <td><span class="dot low"></span>Low</td>
+      <td>Partially valid</td>
+      <td>Data model from Phase 2 (cheap). UI deferred to Phase 3 (only if needed)</td>
+    </tr>
+    <tr>
+      <td>12</td>
+      <td>Two specs in one</td>
+      <td><span class="dot medium"></span>Medium</td>
+      <td>Valid</td>
+      <td>4-phase re-sequencing. Safe work ships first</td>
+    </tr>
+    <tr>
+      <td>13</td>
+      <td>All breaks at once</td>
+      <td><span class="dot medium"></span>Medium</td>
+      <td>Valid</td>
+      <td>Deprecation bridge: executeAction kept in Phase 1, removed in Phase 2</td>
+    </tr>
+    <tr>
+      <td>14</td>
+      <td>Encryption first</td>
+      <td><span class="dot high"></span>High</td>
+      <td>Valid</td>
+      <td>Phase 0: standalone, closes live security gap</td>
+    </tr>
+    <tr>
+      <td>15</td>
+      <td>kind overloaded</td>
+      <td><span class="dot low"></span>Low</td>
+      <td>Valid</td>
+      <td>Renamed to <code>provider</code> on ConnectorDefinition</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr class="divider">
+
+<p style="text-align: center; color: var(--text-muted); font-size: 0.85rem; padding: 2rem 0;">
+  Full spec: <code>docs/superpowers/specs/2026-05-28-connector-sdk-design-v2.md</code><br>
+  Peer review: <code>gist.github.com/parag/dda8b01efe71ebea400adce9b0b8384c</code>
+</p>
+
+</div>
+</body>
+</html>

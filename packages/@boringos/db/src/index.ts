@@ -13,4 +13,6 @@ export type { Db, DatabaseConnection } from "./connection.js";
 
 export { createMigrationManager } from "./migrate.js";
 
+export { packCredentials, unpackCredentials } from "./credentials.js";
+
 export * from "./schema/index.js";

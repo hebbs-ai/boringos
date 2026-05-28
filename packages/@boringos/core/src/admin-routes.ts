@@ -41,6 +41,7 @@ import { generateId } from "@boringos/shared";
 import type { RealtimeBus } from "./realtime.js";
 import type { EventBus } from "./event-bus.js";
 import { syncArchive, syncStatusChange } from "./inbox-gmail-sync.js";
+import type { AuthManager } from "./auth-manager.js";
 import { runWorkflow } from "./run-workflow.js";
 import { canAccess, validatePath, type Actor } from "./modules/drive-acl.js";
 import { contentTypeFor } from "./drive-mime.js";
@@ -63,6 +64,7 @@ export function createAdminRoutes(
   eventBus?: EventBus,
   drive?: StorageBackend,
   settingRegistry?: import("@boringos/agent").SettingRegistry,
+  authManager?: AuthManager,
 ): Hono<AdminEnv> {
 
   function emit(type: string, tenantId: string, data: Record<string, unknown>) {
@@ -2276,7 +2278,7 @@ export function createAdminRoutes(
     if (rows[0].status === "unread") {
       await db.update(inboxItems).set({ status: "read", updatedAt: new Date() }).where(eq(inboxItems.id, rows[0].id));
       // Mirror to Gmail: remove UNREAD label.
-      void syncStatusChange({ db }, c.get("tenantId"), rows[0].id, "read");
+      if (authManager) void syncStatusChange({ db, authManager }, c.get("tenantId"), rows[0].id, "read");
     }
 
     return c.json(rows[0]);
@@ -2326,8 +2328,8 @@ export function createAdminRoutes(
     // Mirror status changes to Gmail. Fire-and-forget — local state is
     // source of truth; Gmail can lag without rolling back the user's
     // action.
-    if (body.status !== undefined && typeof body.status === "string") {
-      void syncStatusChange({ db }, tenantId, itemId, body.status);
+    if (body.status !== undefined && typeof body.status === "string" && authManager) {
+      void syncStatusChange({ db, authManager }, tenantId, itemId, body.status);
     }
     const rows = await db.select().from(inboxItems).where(eq(inboxItems.id, itemId)).limit(1);
     if (!rows[0]) return c.json({ error: "Inbox item not found" }, 404);
@@ -2375,7 +2377,7 @@ export function createAdminRoutes(
       archivedAt: new Date(),
       updatedAt: new Date(),
     }).where(and(eq(inboxItems.id, itemId), eq(inboxItems.tenantId, tenantId)));
-    void syncArchive({ db }, tenantId, itemId);
+    if (authManager) void syncArchive({ db, authManager }, tenantId, itemId);
     return c.json({ ok: true });
   });
 

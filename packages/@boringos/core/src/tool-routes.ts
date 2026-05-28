@@ -22,6 +22,7 @@ import type {
   InstallManager,
 } from "@boringos/agent";
 import type { ToolInvocationSource } from "@boringos/module-sdk";
+import { tenantContext } from "./tenant-context.js";
 
 interface ResolvedAuth {
   tenantId: string;
@@ -149,18 +150,24 @@ export function createToolRoutes(deps: ToolRoutesDeps): Hono<AuthEnv> {
     const idempotencyKey = c.req.header("Idempotency-Key") ?? undefined;
 
     try {
-      const dispatched = await dispatch(
-        { registry: deps.registry, db: deps.db },
-        fullName,
-        body,
-        {
-          tenantId: auth.tenantId,
-          agentId: auth.agentId,
-          runId: auth.runId,
-          wakeOwnerUserId: auth.wakeOwnerUserId,
-          invokedBy: auth.invokedBy,
-        },
-        { idempotencyKey },
+      // Wrap the dispatch call in tenantContext.run() so that
+      // ModuleFactoryDeps auth helpers (getConnectorToken, etc.) can
+      // read the tenantId from AsyncLocalStorage without it appearing
+      // in the public deps signature.
+      const dispatched = await tenantContext.run(auth.tenantId, () =>
+        dispatch(
+          { registry: deps.registry, db: deps.db },
+          fullName,
+          body,
+          {
+            tenantId: auth.tenantId,
+            agentId: auth.agentId,
+            runId: auth.runId,
+            wakeOwnerUserId: auth.wakeOwnerUserId,
+            invokedBy: auth.invokedBy,
+          },
+          { idempotencyKey },
+        ),
       );
 
       return c.json(dispatched.result, dispatched.status as 200 | 400 | 403 | 404 | 500);

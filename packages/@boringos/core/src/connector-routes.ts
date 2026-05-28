@@ -1,36 +1,25 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// Connection routes — OAuth dance + tenant-connection listing.
+// Connection routes: OAuth dance + tenant-connection listing.
 //
-// Legacy connector routes mounted: OAuth flow, webhook receivers, action invocation,
-// connector definition listing. The legacy framework is gone; this
-// file now mounts ONLY:
+// Handlers mounted here:
 //
-//   - GET  /oauth/:kind/authorize — start the OAuth dance
-//   - GET  /oauth/:kind/callback  — provider callback (persists
-//                                   credentials in `connectors`)
-//   - GET  /connectors            — list providers + per-tenant
-//                                   connection state (for the shell)
-//   - POST /disconnect/:kind      — admin removes credentials
+//   - GET  /oauth/:provider/authorize : start the OAuth dance (delegates to AuthManager)
+//   - GET  /oauth/:provider/callback  : provider callback (delegates to AuthManager)
+//   - GET  /connectors                : list providers + per-tenant
+//                                       connection state (for the shell)
+//   - GET  /status                    : same as /connectors (legacy name)
+//   - POST /disconnect/:kind          : admin removes all accounts for a provider
+//   - POST /:kind/sync                : pause/resume Gmail forward-sync
 //
-// Action invocation and webhook receivers moved to:
-//   - /api/tools/<module>.<action> for actions
-//   - /api/webhooks/<module-id>/<event> for inbound webhooks
-//     (mounted by the Module registry)
+// All listing/disconnect/sync handlers read from connector_accounts (Task 2.11).
+// The legacy `connectors` table is gone.
 
 import { Hono, type Context } from "hono";
 import { eq, and, sql } from "drizzle-orm";
 import type { Db } from "@boringos/db";
-import { connectors } from "@boringos/db";
-import { generateId } from "@boringos/shared";
-import {
-  createOAuthManager,
-  createState,
-  verifyState,
-  isSafeReturnTo,
-  OAUTH_PROVIDERS,
-  type OAuthConfig,
-} from "./oauth.js";
+import { connectorAccounts } from "@boringos/db";
+import type { AuthManager } from "./auth-manager.js";
 import type { EventBus } from "./event-bus.js";
 
 export interface ConnectorRoutesOptions {
@@ -42,7 +31,7 @@ interface ProviderEntry {
   kind: string;
   name: string;
   description: string;
-  oauth: OAuthConfig;
+  scopes: string[];
 }
 
 const PROVIDER_DISPLAY: Record<string, { name: string; description: string }> = {
@@ -50,28 +39,20 @@ const PROVIDER_DISPLAY: Record<string, { name: string; description: string }> = 
   slack: { name: "Slack", description: "Channels, threads, reactions" },
 };
 
-function listProviders(): ProviderEntry[] {
-  return Object.entries(OAUTH_PROVIDERS).map(([kind, oauth]) => ({
-    kind,
-    name: PROVIDER_DISPLAY[kind]?.name ?? kind,
-    description: PROVIDER_DISPLAY[kind]?.description ?? "",
-    oauth,
+function listProviders(authManager?: AuthManager): ProviderEntry[] {
+  const defs = authManager?.listConnectors() ?? [];
+  return defs.map((def) => ({
+    kind: def.provider,
+    name: PROVIDER_DISPLAY[def.provider]?.name ?? def.displayName,
+    description: PROVIDER_DISPLAY[def.provider]?.description ?? "",
+    scopes: def.services.flatMap((s) => s.scopes.map((sc) => sc.scope)),
   }));
 }
 
-function readEnvClient(kind: string): { clientId?: string; clientSecret?: string } {
-  const env = kind.toUpperCase();
-  return {
-    clientId: process.env[`${env}_CLIENT_ID`],
-    clientSecret: process.env[`${env}_CLIENT_SECRET`],
-  };
-}
-
-// Forward-sync defaults ON: a connected connector with no explicit flag
-// keeps ingesting. Only an explicit `false` pauses it.
-function readForwardSyncEnabled(config: unknown): boolean {
-  const gmail = (config as { gmail?: { forwardSyncEnabled?: unknown } } | null)?.gmail;
-  return gmail?.forwardSyncEnabled !== false;
+// Forward-sync defaults ON: a connected account with no explicit flag
+// keeps ingesting. Only an explicit `false` (stored in profile JSONB) pauses it.
+function readForwardSyncEnabled(profile: Record<string, unknown> | null | undefined): boolean {
+  return (profile as { forwardSyncEnabled?: unknown } | null)?.forwardSyncEnabled !== false;
 }
 
 function publicOrigin(c: Context, baseUrl: string): string {
@@ -85,134 +66,85 @@ function publicOrigin(c: Context, baseUrl: string): string {
   }
 }
 
-function resolveReturnTo(raw: string | undefined, fallback: string): string {
-  if (!raw) return fallback;
-  return raw;
-}
-
 export function createConnectorRoutes(
   db: Db,
   // eventBus is reserved for future webhook routing; kept on the
   // signature so callers don't have to change.
   _eventBus: EventBus,
-  jwtSecret: string,
   baseUrl: string,
   opts: ConnectorRoutesOptions = {},
+  authManager?: AuthManager,
 ): Hono {
   const app = new Hono();
   const shellOrigin = opts.shellOrigin ?? process.env.BORINGOS_SHELL_URL ?? "";
 
-  function buildAllowedOrigins(callerOrigin: string): string[] {
-    const list = new Set<string>([callerOrigin]);
-    if (shellOrigin) list.add(shellOrigin);
-    return Array.from(list);
+  /** Default scopes for a provider, derived from its ConnectorDefinition. */
+  function defaultScopesForProvider(provider: string): string[] {
+    if (!authManager) return [];
+    const def = authManager.getConnector(provider);
+    return def?.services.flatMap((s) => s.scopes.map((sc) => sc.scope)) ?? [];
   }
 
-  // ── OAuth ──────────────────────────────────────────────────
+  // ── OAuth (v2 path: delegates to AuthManager) ───────────────
 
-  app.get("/oauth/:kind/authorize", async (c) => {
-    const kind = c.req.param("kind");
-    const provider = OAUTH_PROVIDERS[kind];
-    if (!provider) return c.json({ error: `Unknown provider: ${kind}` }, 404);
+  app.get("/oauth/:provider/authorize", async (c) => {
+    const provider = c.req.param("provider");
 
     const tenantId = c.req.query("tenantId") ?? c.req.header("X-Tenant-Id") ?? "";
     if (!tenantId) return c.json({ error: "tenantId required" }, 400);
 
-    const { clientId, clientSecret } = readEnvClient(kind);
-    if (!clientId || !clientSecret) {
-      return c.json(
-        {
-          error: `Missing ${kind.toUpperCase()}_CLIENT_ID / ${kind.toUpperCase()}_CLIENT_SECRET in environment.`,
-        },
-        500,
-      );
+    if (!authManager) {
+      return c.json({ error: "AuthManager not configured" }, 500);
     }
 
-    const callerOrigin = publicOrigin(c, baseUrl);
-    const allowed = buildAllowedOrigins(callerOrigin);
-    const rawReturn = c.req.query("returnTo");
-    const returnTo = isSafeReturnTo(rawReturn ?? "", allowed)
-      ? rawReturn!
-      : resolveReturnTo(undefined, `${shellOrigin || callerOrigin}/connectors`);
+    const connector = authManager.getConnector(provider);
+    if (!connector) return c.json({ error: `Unknown provider: ${provider}` }, 404);
 
-    const oauth = createOAuthManager(provider, clientId, clientSecret);
-    const redirectUri = `${callerOrigin}/api/connectors/oauth/${kind}/callback`;
-    const state = createState({ tenantId, returnTo }, jwtSecret);
-    return c.redirect(oauth.getAuthorizationUrl(redirectUri, state));
+    const rawScopes = c.req.query("scopes");
+    const scopes = rawScopes ? rawScopes.split(",").map((s) => s.trim()).filter(Boolean) : defaultScopesForProvider(provider);
+
+    try {
+      const { authUrl } = await authManager.startOAuthFlow(provider, tenantId, scopes);
+      return c.redirect(authUrl);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      return c.json({ error: reason }, 500);
+    }
   });
 
-  app.get("/oauth/:kind/callback", async (c) => {
-    const kind = c.req.param("kind");
-    const provider = OAUTH_PROVIDERS[kind];
-    if (!provider) return c.text(`Unknown provider: ${kind}`, 400);
-
+  app.get("/oauth/:provider/callback", async (c) => {
+    const provider = c.req.param("provider");
     const code = c.req.query("code");
-    const stateRaw = c.req.query("state") ?? "";
+    const state = c.req.query("state") ?? "";
     const error = c.req.query("error");
-    const callerOrigin = publicOrigin(c, baseUrl);
-    const fallback = `${shellOrigin || callerOrigin}/connectors`;
+    const fallback = `${shellOrigin || publicOrigin(c, baseUrl)}/connectors`;
 
     if (error) {
       return c.redirect(
-        `${fallback}?connect=error&kind=${encodeURIComponent(kind)}&reason=${encodeURIComponent(error)}`,
+        `${fallback}?connect=error&provider=${encodeURIComponent(provider)}&reason=${encodeURIComponent(error)}`,
       );
     }
-    if (!code) {
+    if (!code || !state) {
       return c.redirect(
-        `${fallback}?connect=error&kind=${encodeURIComponent(kind)}&reason=missing_code`,
+        `${fallback}?connect=error&provider=${encodeURIComponent(provider)}&reason=missing_code_or_state`,
       );
     }
 
-    const verified = verifyState(stateRaw, jwtSecret);
-    if (!verified.ok || !verified.payload) {
+    if (!authManager) {
       return c.redirect(
-        `${fallback}?connect=error&kind=${encodeURIComponent(kind)}&reason=${encodeURIComponent(verified.reason ?? "bad_state")}`,
+        `${fallback}?connect=error&provider=${encodeURIComponent(provider)}&reason=auth_manager_not_configured`,
       );
     }
-    const { tenantId, returnTo } = verified.payload;
-
-    const { clientId, clientSecret } = readEnvClient(kind);
-    if (!clientId || !clientSecret) {
-      return c.redirect(
-        `${fallback}?connect=error&kind=${encodeURIComponent(kind)}&reason=missing_client`,
-      );
-    }
-
-    const oauth = createOAuthManager(provider, clientId, clientSecret);
-    const redirectUri = `${callerOrigin}/api/connectors/oauth/${kind}/callback`;
 
     try {
-      const tokens = await oauth.exchangeCode(code, redirectUri);
-      const credentialBag = {
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
-        expiresAt: tokens.expiresAt?.toISOString(),
-      };
-      const existing = await db
-        .select()
-        .from(connectors)
-        .where(and(eq(connectors.tenantId, tenantId), eq(connectors.kind, kind)))
-        .limit(1);
-      if (existing[0]) {
-        await db
-          .update(connectors)
-          .set({ credentials: credentialBag, status: "active", updatedAt: new Date() })
-          .where(eq(connectors.id, existing[0].id));
-      } else {
-        await db.insert(connectors).values({
-          id: generateId(),
-          tenantId,
-          kind,
-          status: "active",
-          config: {},
-          credentials: credentialBag,
-        });
-      }
-      return c.redirect(`${returnTo}?connect=ok&kind=${encodeURIComponent(kind)}`);
-    } catch (err) {
-      const reason = err instanceof Error ? err.message : "exchange_failed";
+      await authManager.handleOAuthCallback(provider, code, state);
       return c.redirect(
-        `${fallback}?connect=error&kind=${encodeURIComponent(kind)}&reason=${encodeURIComponent(reason)}`,
+        `${shellOrigin || publicOrigin(c, baseUrl)}/connectors?connect=ok&provider=${encodeURIComponent(provider)}`,
+      );
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : "callback_failed";
+      return c.redirect(
+        `${fallback}?connect=error&provider=${encodeURIComponent(provider)}&reason=${encodeURIComponent(reason)}`,
       );
     }
   });
@@ -220,7 +152,18 @@ export function createConnectorRoutes(
   // ── Connection listing ────────────────────────────────────
   //
   // Mounted at both `/status` (Connectors screen) and `/connectors`
-  // (ui/client hooks) — same handler, different historical names.
+  // (ui/client hooks). Same handler, different historical names.
+  //
+  // Response shape (unchanged from before):
+  //   { connectors: ConnectorStatusRow[], tenantId: string }
+  //
+  // ConnectorStatusRow fields:
+  //   kind, name, description, hasOAuth, oauthScopes, connected, status,
+  //   lastSyncAt (null -- field no longer on connector_accounts), forwardSyncEnabled
+  //
+  // When a tenant has multiple accounts for the same provider (multi-account),
+  // the listing reports the provider as connected if any account is active.
+  // `forwardSyncEnabled` reflects the first active account's profile flag.
 
   const listingHandler = async (c: Context) => {
     // Browser flow: resolve tenant from session token.
@@ -239,19 +182,38 @@ export function createConnectorRoutes(
       tenantId = rows[0].tenant_id;
     }
 
-    const connected = await db.select().from(connectors).where(eq(connectors.tenantId, tenantId));
-    const available = listProviders().map((p) => {
-      const match = connected.find((c) => c.kind === p.kind);
+    const accounts = await db
+      .select()
+      .from(connectorAccounts)
+      .where(eq(connectorAccounts.tenantId, tenantId));
+
+    // Group accounts by provider. For the per-provider summary the shell
+    // expects, we pick the first active account (or any account if none
+    // are active) to derive the status + forwardSyncEnabled flag.
+    const byProvider = new Map<string, typeof accounts[number]>();
+    for (const acct of accounts) {
+      const existing = byProvider.get(acct.provider);
+      if (!existing || acct.status === "active") {
+        byProvider.set(acct.provider, acct);
+      }
+    }
+
+    const available = listProviders(authManager).map((p) => {
+      const match = byProvider.get(p.kind);
       return {
         kind: p.kind,
         name: p.name,
         description: p.description,
         hasOAuth: true,
-        oauthScopes: p.oauth.scopes,
+        oauthScopes: p.scopes,
         connected: !!match,
+        // Map connector_accounts.status; fall back to "not_connected" when absent.
         status: match?.status ?? "not_connected",
-        lastSyncAt: match?.lastSyncAt,
-        forwardSyncEnabled: readForwardSyncEnabled(match?.config),
+        // connector_accounts has no lastSyncAt -- always null.
+        lastSyncAt: null as null,
+        forwardSyncEnabled: readForwardSyncEnabled(
+          match?.profile as Record<string, unknown> | null | undefined,
+        ),
       };
     });
 
@@ -262,6 +224,10 @@ export function createConnectorRoutes(
   app.get("/connectors", listingHandler);
 
   // ── Disconnect ────────────────────────────────────────────
+  //
+  // Removes ALL connector_accounts rows for the given provider + tenant.
+  // Uses AuthManager.removeAccount for each account found so bindings
+  // are also cleaned up.
 
   app.post("/disconnect/:kind", async (c) => {
     const kind = c.req.param("kind");
@@ -277,21 +243,45 @@ export function createConnectorRoutes(
     if (!rows[0]) return c.json({ error: "Invalid session" }, 401);
     if (rows[0].role !== "admin") return c.json({ error: "Admin only" }, 403);
 
-    await db
-      .delete(connectors)
-      .where(and(eq(connectors.tenantId, rows[0].tenant_id), eq(connectors.kind, kind)));
+    const tenantId = rows[0].tenant_id;
+
+    if (authManager) {
+      // Remove each account individually so AuthManager also cleans up bindings.
+      const existing = await db
+        .select({ accountId: connectorAccounts.accountId })
+        .from(connectorAccounts)
+        .where(
+          and(
+            eq(connectorAccounts.tenantId, tenantId),
+            eq(connectorAccounts.provider, kind),
+          ),
+        );
+      for (const acct of existing) {
+        await authManager.removeAccount(kind, acct.accountId, tenantId);
+      }
+    } else {
+      // Fallback: direct delete (no authManager = no binding cleanup needed).
+      await db
+        .delete(connectorAccounts)
+        .where(
+          and(
+            eq(connectorAccounts.tenantId, tenantId),
+            eq(connectorAccounts.provider, kind),
+          ),
+        );
+    }
 
     return c.json({ ok: true });
   });
 
   // ── Forward-sync toggle ───────────────────────────────────
   //
-  // Pause/resume the Gmail forward-sync ticker for this tenant
-  // WITHOUT tearing down the connection. Flips
-  // `config.gmail.forwardSyncEnabled`; the ticker
-  // (inbox-gmail-forward-sync.ts) skips connectors where it is false.
-  // Reversible and non-destructive, so — unlike disconnect — it is
-  // not admin-gated; any tenant member can pause their own sync.
+  // Pause/resume the Gmail forward-sync ticker for this tenant WITHOUT
+  // tearing down the connection. Flips `profile.forwardSyncEnabled` on all
+  // connector_accounts rows for the given provider + tenant. The ticker
+  // (inbox-gmail-forward-sync.ts) skips accounts where it is false.
+  // Reversible and non-destructive, so (unlike disconnect) it is not
+  // admin-gated; any tenant member can pause their own sync.
 
   app.post("/:kind/sync", async (c) => {
     const kind = c.req.param("kind");
@@ -315,19 +305,24 @@ export function createConnectorRoutes(
 
     const existing = await db
       .select()
-      .from(connectors)
-      .where(and(eq(connectors.tenantId, tenantId), eq(connectors.kind, kind)))
-      .limit(1);
-    if (!existing[0]) return c.json({ error: "Connector not connected" }, 404);
+      .from(connectorAccounts)
+      .where(
+        and(
+          eq(connectorAccounts.tenantId, tenantId),
+          eq(connectorAccounts.provider, kind),
+        ),
+      );
+    if (!existing.length) return c.json({ error: "Connector not connected" }, 404);
 
-    const cfg = (existing[0].config as Record<string, unknown> | null) ?? {};
-    const gmail = (cfg.gmail as Record<string, unknown> | undefined) ?? {};
-    const nextConfig = { ...cfg, gmail: { ...gmail, forwardSyncEnabled: enabled } };
-
-    await db
-      .update(connectors)
-      .set({ config: nextConfig, updatedAt: new Date() })
-      .where(eq(connectors.id, existing[0].id));
+    // Update forwardSyncEnabled on all accounts for this provider.
+    for (const acct of existing) {
+      const profile = (acct.profile as Record<string, unknown> | null) ?? {};
+      const nextProfile = { ...profile, forwardSyncEnabled: enabled };
+      await db
+        .update(connectorAccounts)
+        .set({ profile: nextProfile, updatedAt: new Date() })
+        .where(eq(connectorAccounts.id, acct.id));
+    }
 
     return c.json({ ok: true, kind, forwardSyncEnabled: enabled });
   });

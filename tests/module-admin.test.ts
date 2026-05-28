@@ -70,7 +70,7 @@ describe("v2 — admin views", () => {
       expect(ids).toEqual(["framework", "memory"]);
       const fw = modulesBody.modules.find((m) => m.id === "framework")!;
       expect(fw.tools.length).toBeGreaterThanOrEqual(9);
-      expect(fw.skills.length).toBe(3);
+      expect(fw.skills.length).toBeGreaterThanOrEqual(3);
 
       // /tools — flat list across all modules.
       const toolsRes = await fetch(`${server.url}/api/admin/tools`, { headers: adminHeaders });

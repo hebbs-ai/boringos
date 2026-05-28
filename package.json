@@ -22,6 +22,7 @@
   "devDependencies": {
     "@boringos/agent": "workspace:*",
     "@boringos/connector-google": "workspace:*",
+    "@boringos/connector-slack": "workspace:*",
     "@boringos/core": "workspace:*",
     "@boringos/db": "workspace:*",
     "@boringos/module-sdk": "workspace:*",

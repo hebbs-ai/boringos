@@ -28,12 +28,24 @@ export const connectorTokenIssuance = pgTable(
     callerModuleId: text("caller_module_id").notNull(),
     /**
      * Outcome of the call:
-     *  - "issued"        — returned an existing fresh token
-     *  - "refreshed"     — refreshed the token, returned the new one
-     *  - "not_connected" — no creds row, or unknown kind, returned null
-     *  - "refresh_failed" — tried to refresh but provider refused; fell back
+     *  - "issued"        -- returned an existing fresh token
+     *  - "refreshed"     -- refreshed the token, returned the new one
+     *  - "not_connected" -- no creds row, or unknown kind, returned null
+     *  - "refresh_failed" -- tried to refresh but provider refused; fell back
      */
     outcome: text("outcome").notNull(),
+    /**
+     * v2 AuthManager populates this with the canonical provider name
+     * (e.g. "google", "slack"). Older rows written by the v1 dispatcher
+     * will have NULL here; use `kind` for those rows.
+     */
+    provider: text("provider"),
+    /**
+     * v2 AuthManager populates this with the account_id from
+     * `connector_accounts` that was used for the issuance. NULL on legacy
+     * rows. Useful for "which Google account caused the spike" queries.
+     */
+    accountId: text("account_id"),
     issuedAt: timestamp("issued_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

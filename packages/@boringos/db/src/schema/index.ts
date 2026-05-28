@@ -6,7 +6,6 @@ export { agentWakeupRequests, agentRuns, costEvents } from "./runs.js";
 // approvals + task_approvals removed — approvals are now tasks
 // (origin_kind="agent_action") with metadata.approval. See
 // docs/blockers/done/task_06_collapse_approvals_into_tasks.md.
-export { connectors } from "./connectors.js";
 export { companySkills, agentSkills } from "./skills.js";
 export { driveFiles, driveSkillRevisions } from "./drive.js";
 export { workflows } from "./workflows.js";
@@ -29,3 +28,6 @@ export { moduleInstalls } from "./module-installs.js";
 export { moduleMigrations } from "./module-migrations.js";
 export { modulePackages } from "./module-packages.js";
 export { connectorTokenIssuance } from "./connector-token-issuance.js";
+export { connectorAccounts } from "./connector-accounts.js";
+export { connectorOauthApps } from "./connector-oauth-apps.js";
+export { moduleConnectorBindings } from "./module-connector-bindings.js";

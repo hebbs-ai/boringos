@@ -55,7 +55,7 @@ type EngineWakeRequest = {
 
 const TOOL_PROTOCOL_SKILL = `Every tool you can call is at \`POST $BORINGOS_CALLBACK_URL/api/tools/<name>\`.
 The full tool name is \`<module-id>.<tool-name>\` (e.g. \`framework.tasks.patch\`,
-\`google.send_email\`). Authentication is the bearer token in
+\`framework.tasks.create\`). Authentication is the bearer token in
 \`$BORINGOS_CALLBACK_TOKEN\`. The body is JSON matching the tool's input
 schema. The response is one of:
 

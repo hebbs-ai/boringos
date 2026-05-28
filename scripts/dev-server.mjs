@@ -16,8 +16,8 @@ import {
   createInboxModule,
   createWorkflowModule,
   createCopilotModule,
-  createSlackModule,
   createGoogleModule,
+  createSlackModule,
   createTriageModule,
   createInboxTriageModule,
   createInboxReplierModule,
@@ -45,6 +45,19 @@ const app = new BoringOS({
   queue: { concurrency: 5 },
 });
 
+// Connectors are auto-discovered from node_modules/@boringos/connector-*
+// at boot. `pnpm add @boringos/connector-<name>` makes a new provider
+// appear; `pnpm remove` makes it disappear. No code change needed here.
+//
+// For custom connectors NOT published under the @boringos scope (e.g. an
+// internal corporate provider), use the explicit builder hook:
+//
+//   import { acmeJiraConnector } from "@acme/boringos-connector-jira";
+//   app.connector(acmeJiraConnector);
+//
+// Explicit registrations layer on top of discovery and can be used to
+// vendor or override a discovered connector for the same provider.
+
 // Modules — register every BUILT-IN the host ships with. The
 // install-manager auto-installs `defaultInstall: true` modules on
 // new tenants. Third-party Modules (e.g. CRM) ship as `.hebbsmod`
@@ -56,8 +69,13 @@ app.module(createDriveModule);
 app.module(createInboxModule);
 app.module(createWorkflowModule);
 app.module(createCopilotModule);
-app.module(createSlackModule);
+// Thin built-in wrappers around the connector SDKs. They expose
+// `gmail.*` / `calendar.*` / `send_message` / etc. tools that the Shell
+// calendar and inbox screens depend on. Third-party modules can still
+// build their own purpose-specific tools using @boringos/connector-google
+// and @boringos/connector-slack directly.
 app.module(createGoogleModule);
+app.module(createSlackModule);
 app.module(createTriageModule);
 app.module(createInboxTriageModule);
 app.module(createInboxReplierModule);

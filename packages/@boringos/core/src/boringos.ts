@@ -28,7 +28,6 @@ import { createEventBus } from "./event-bus.js";
 import type {
   BoringOSConfig,
   AppContext,
-  ConnectorDefinition,
   PersonaBundle,
   PluginManifest,
   LifecycleHook,
@@ -72,12 +71,17 @@ import { createPluginRegistry } from "./plugin-system.js";
 import type { PluginDefinition } from "./plugin-system.js";
 import { createPluginWebhookRoutes, createPluginAdminRoutes } from "./plugin-routes.js";
 import { githubPlugin } from "./plugins/github.js";
-import { getConnectorTokenForTenant } from "./connector-tokens.js";
+import { AuthManager } from "./auth-manager.js";
+import { tenantContext, requireTenantId } from "./tenant-context.js";
+import { discoverConnectors } from "./connector-discovery.js";
+import type { ConnectorDefinition } from "@boringos/module-sdk";
+import { randomBytes } from "node:crypto";
 
 export class BoringOS {
   private config: BoringOSConfig;
   private memoryProvider: MemoryProvider = nullMemory;
   private extraRuntimes: RuntimeModule[] = [];
+  private extraConnectors: ConnectorDefinition[] = [];
   private contextProviders: ContextProvider[] = [];
   private personas: Map<string, PersonaBundle> = new Map();
   private plugins: PluginManifest[] = [];
@@ -145,6 +149,18 @@ export class BoringOS {
 
   runtime(module: RuntimeModule): this {
     this.extraRuntimes.push(module);
+    return this;
+  }
+
+  /**
+   * Register an explicit ConnectorDefinition with the auth manager.
+   *
+   * Use this for connectors that are NOT under the @boringos scope (so
+   * auto-discovery cannot find them), or for vendored copies that should
+   * override a discovered one with the same provider name.
+   */
+  connector(definition: ConnectorDefinition): this {
+    this.extraConnectors.push(definition);
     return this;
   }
 
@@ -487,12 +503,55 @@ export class BoringOS {
       type: "boolean",
       default: false,
     });
+    // ── AuthManager (Connector SDK v2) ──────────────────────────────────
+    // One AuthManager per BoringOS instance. Built-in connectors are
+    // registered here at boot. Third-party connectors will register via
+    // the install pipeline in a future task.
+    //
+    // The public URL is used as the base for OAuth redirect URIs.
+    // Fall back to localhost:<port> when no explicit base is configured.
+    const authManagerSecret =
+      this.config.auth?.secret ?? randomBytes(32).toString("hex");
+    const publicBase = `http://localhost:${listenPort}`;
+    const authManager = new AuthManager(
+      dbConn.db,
+      authManagerSecret,
+      (provider: string) => `${publicBase}/api/connectors/oauth/${provider}/callback`,
+    );
+    // Auto-discovery: scan node_modules for @boringos/connector-* packages
+    // and register every ConnectorDefinition we find. This makes connectors
+    // truly install-via-npm: `pnpm add @boringos/connector-google` and the
+    // provider shows up at next boot.
+    const discovered = await discoverConnectors();
+    for (const { packageName, provider, definition } of discovered) {
+      console.log(`[connector-discovery] registered ${provider} from ${packageName}`);
+      authManager.registerConnector(definition);
+    }
+
+    // Explicit connectors passed via the builder hook (.connector()) take
+    // precedence and are useful for custom (non-@boringos-scoped) connectors
+    // or for overriding a discovered one with a vendored copy.
+    for (const def of this.extraConnectors) {
+      // Skip if already registered by discovery (explicit second-wins would
+      // require unregister, which we do not support).
+      if (!authManager.getConnector(def.provider)) {
+        console.log(`[connector] registered ${def.provider} (explicit)`);
+        authManager.registerConnector(def);
+      }
+    }
+
     // ModuleFactory functions are resolved here, after the DB +
     // drive are available (memory provider, agent + workflow
     // engines are wired in by reference later — built-ins that
     // need them close over the deps object). The factory pattern
     // lets built-ins access framework services without leaking
     // those types into the SDK's Module shape.
+    //
+    // getConnectorToken / listConnectedAccounts / checkScopes thread
+    // the tenantId through AsyncLocalStorage (see tenant-context.ts).
+    // The tool dispatcher (tool-routes.ts) sets the store before every
+    // dispatch call; these closures read it. Calling outside a
+    // dispatched tool handler throws with a descriptive error.
     const factoryDeps: ModuleFactoryDeps = {
       db: dbConn.db,
       memory: this.memoryProvider,
@@ -505,8 +564,20 @@ export class BoringOS {
       toolRegistry: toolRegistry,
       realtimeBus: undefined as unknown,
       eventBus: undefined as unknown,
-      getConnectorToken: (kind, tenantId, callerModuleId) =>
-        getConnectorTokenForTenant(dbConn.db, kind, tenantId, callerModuleId),
+      getConnectorToken: (provider, callerModuleId, opts) => {
+        const tenantId = requireTenantId();
+        return authManager.getToken(provider, tenantId, callerModuleId, opts);
+      },
+      listConnectedAccounts: (provider) => {
+        const tenantId = requireTenantId();
+        return authManager.listAccounts(provider, tenantId);
+      },
+      checkScopes: (provider, scopes, opts) => {
+        const tenantId = requireTenantId();
+        // callerModuleId is not in the public signature; use "unknown" for audit.
+        // TODO: thread callerModuleId via opts in a follow-up.
+        return authManager.checkScopes(provider, tenantId, "unknown", scopes, opts);
+      },
     };
     const boundModules: Module[] = [];
 
@@ -936,9 +1007,9 @@ export class BoringOS {
     // The OAuth + webhook pieces of /api/connectors stay mounted so
     // OAuth flows and 3rd-party webhooks keep working — the gating
     // is specifically the actions invocation paths.
-    const connectorApp = createConnectorRoutes(dbConn.db, eventBus, jwtSecret, callbackUrl, {
+    const connectorApp = createConnectorRoutes(dbConn.db, eventBus, callbackUrl, {
       shellOrigin: this.config.shellOrigin,
-    });
+    }, authManager);
     app.route("/api/connectors", connectorApp);
 
     // Admin API (for human management of the platform)
@@ -951,7 +1022,7 @@ export class BoringOS {
     // per-block events to the canvas.
     (factoryDeps as { realtimeBus: unknown }).realtimeBus = realtimeBus;
 
-    const adminApp = createAdminRoutes(dbConn.db, agentEngine, adminKeyValue, realtimeBus, toolRegistry, runtimes, eventBus, drive, settingRegistry);
+    const adminApp = createAdminRoutes(dbConn.db, agentEngine, adminKeyValue, realtimeBus, toolRegistry, runtimes, eventBus, drive, settingRegistry, authManager);
     app.route("/api/admin", adminApp);
 
     const sseApp = createSSERoutes(realtimeBus, adminKeyValue, dbConn.db);
@@ -1343,7 +1414,7 @@ export class BoringOS {
     // Inbox snooze ticker: flips snoozed rows back to unread when their
     // snooze_until elapses. Cheap (one indexed UPDATE every 30s) so
     // wired unconditionally.
-    const snoozeTicker = createInboxSnoozeTicker(dbConn.db);
+    const snoozeTicker = createInboxSnoozeTicker(dbConn.db, authManager);
     snoozeTicker.start();
 
     // Forward sync — ingest new Gmail messages into inbox_items every
@@ -1468,7 +1539,7 @@ export class BoringOS {
     // path; the automated-mail skip optimization lives in the
     // workflow's `check-not-automated` condition block (see
     // `buildTriageWorkflowBlocks` in modules/inbox-triage.ts).
-    const forwardSyncTicker = createInboxGmailForwardSyncTicker(dbConn.db, {
+    const forwardSyncTicker = createInboxGmailForwardSyncTicker(dbConn.db, authManager, {
       eventBus,
     });
     forwardSyncTicker.start();
@@ -1498,7 +1569,7 @@ export class BoringOS {
     // every 2 minutes. Skipped silently if no Gmail connector is wired
     // (the ticker iterates connected Gmail tenants; an empty set is a
     // no-op).
-    const reverseSyncTicker = createInboxGmailReverseSyncTicker(dbConn.db);
+    const reverseSyncTicker = createInboxGmailReverseSyncTicker(dbConn.db, authManager);
     reverseSyncTicker.start();
 
     // 13. Run afterStart hooks

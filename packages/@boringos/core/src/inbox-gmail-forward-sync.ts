@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// Forward sync — Gmail → Hebbs inbox ingestion.
+// Forward sync -- Gmail -> Hebbs inbox ingestion.
 //
 // On a fixed cadence (default every 30s), for each tenant with a
-// connected Gmail connector, fetch recent messages and upsert them
-// into `inbox_items` so the shell's Inbox screen + the triage agent
+// connected Gmail account, fetch recent messages and upsert them
+// into `inbox_items` so the shell's Inbox screen and the triage agent
 // can react.
 //
-// Cursor: `config.gmail.lastForwardSyncAt` (epoch seconds). On the
-// first tick we fetch the last 60 minutes; subsequent ticks fetch
+// Cursor: `connector_accounts.profile.lastForwardSyncAt` (epoch seconds).
+// On the first tick we fetch the last 60 minutes; subsequent ticks fetch
 // `after:<cursor>`.
+//
+// Flag: `connector_accounts.profile.forwardSyncEnabled` (boolean, default
+// true). Set it to false to pause ingestion for a specific account without
+// disconnecting. Omitting it is the same as true.
 //
 // Idempotent: dedups by (tenantId, source='google.gmail', sourceId).
 // We re-check existence per row rather than relying on a unique
@@ -18,10 +22,11 @@
 //
 // Standalone ticker (no workflow dependency).
 
-import { sql } from "drizzle-orm";
+import { sql, eq, and } from "drizzle-orm";
 import type { Db } from "@boringos/db";
+import { connectorAccounts } from "@boringos/db";
 import { GmailClient, type EmailHeaders } from "@boringos/connector-google";
-import { refreshOAuthToken } from "./oauth.js";
+import type { AuthManager } from "./auth-manager.js";
 import type { EventBus } from "./event-bus.js";
 import {
   classifyAutomatedMail,
@@ -47,23 +52,19 @@ export interface IngestedInboxItem {
   automated: AutomatedClassification;
 }
 
-const KIND_GMAIL = "google";
+const PROVIDER_GOOGLE = "google";
 const SOURCE_GMAIL = "google.gmail";
+const CALLER_MODULE = "inbox-gmail-forward-sync";
 const DEFAULT_INTERVAL_MS = 30_000;
 const FIRST_RUN_LOOKBACK_SECONDS = 60 * 60; // 1 hour
 const MAX_RESULTS_PER_TICK = 25;
 
-interface ConnectorRow {
+// Account row from connector_accounts -- only the fields we need.
+interface AccountRow {
   id: string;
-  tenant_id: string;
-  credentials: Record<string, unknown> | null;
-  config: Record<string, unknown> | null;
-}
-
-interface SimpleResult {
-  success: boolean;
-  data?: unknown;
-  error?: string;
+  tenantId: string;
+  accountId: string;
+  profile: Record<string, unknown> | null;
 }
 
 interface GmailMessage {
@@ -82,7 +83,7 @@ interface GmailMessage {
   headers?: EmailHeaders;
   /** Gmail system + user label ids on the message (e.g. CATEGORY_UPDATES,
    *  CATEGORY_PROMOTIONS, SPAM, IMPORTANT, STARRED, user labels). A
-   *  strong triage/lead signal — persisted to `metadata.email.gmailLabels`. */
+   *  strong triage/lead signal -- persisted to `metadata.email.gmailLabels`. */
   labelIds?: string[];
 }
 
@@ -101,74 +102,130 @@ function emptyHeaders(): EmailHeaders {
   };
 }
 
-export interface InboxGmailForwardSyncTicker {
-  start(): void;
-  stop(): void;
-  /** Single tick — exposed for tests / manual triggers. */
-  tickOnce(): Promise<{ tenantsScanned: number; itemsCreated: number }>;
+/** Decode a base64url-encoded Gmail body part to UTF-8 text. */
+function decodeBase64Url(data: string): string {
+  return Buffer.from(data, "base64url").toString("utf-8");
 }
 
-async function runGmail(
-  db: Db,
-  row: ConnectorRow,
-  action: string,
-  inputs: Record<string, unknown>,
-): Promise<SimpleResult> {
-  const access = (row.credentials?.accessToken as string | undefined) ?? "";
-  const refresh = row.credentials?.refreshToken as string | undefined;
-  let result = await new GmailClient(access).executeAction(action, inputs);
-  const looks401 =
-    !result.success && typeof result.error === "string" && /\b401\b/.test(result.error);
-  if (looks401 && refresh) {
-    const refreshed = await refreshOAuthToken("google", refresh);
-    if (refreshed) {
-      const nextCreds: Record<string, unknown> = {
-        ...(row.credentials ?? {}),
-        accessToken: refreshed.accessToken,
-      };
-      if (refreshed.expiresAt) nextCreds.expiresAt = refreshed.expiresAt;
-      await db
-        .execute(
-          sql`UPDATE connectors
-                 SET credentials = ${JSON.stringify(nextCreds)}::jsonb,
-                     updated_at  = now()
-               WHERE id = ${row.id}`,
-        )
-        .catch(() => {});
-      row.credentials = nextCreds;
-      result = await new GmailClient(refreshed.accessToken).executeAction(action, inputs);
+type GmailPayload = {
+  body?: { data?: string };
+  mimeType?: string;
+  parts?: Array<{
+    mimeType: string;
+    body?: { data?: string };
+    parts?: Array<{ mimeType: string; body?: { data?: string } }>;
+  }>;
+  headers?: Array<{ name: string; value: string }>;
+};
+
+/** Extract both plain-text and HTML bodies from a Gmail message payload. */
+function extractBodies(payload?: GmailPayload): { plain: string | null; html: string | null } {
+  if (!payload) return { plain: null, html: null };
+
+  // Single-part message -- body is directly on the payload
+  if (payload.body?.data) {
+    const decoded = decodeBase64Url(payload.body.data);
+    if (payload.mimeType === "text/html") {
+      return { plain: null, html: decoded };
+    }
+    return { plain: decoded, html: null };
+  }
+
+  if (!payload.parts) return { plain: null, html: null };
+
+  let plain: string | null = null;
+  let html: string | null = null;
+
+  for (const part of payload.parts) {
+    if (part.mimeType === "text/plain" && part.body?.data) {
+      plain = decodeBase64Url(part.body.data);
+    } else if (part.mimeType === "text/html" && part.body?.data) {
+      html = decodeBase64Url(part.body.data);
+    }
+    // Nested multipart (e.g. multipart/alternative inside multipart/mixed)
+    if (part.parts) {
+      for (const sub of part.parts) {
+        if (sub.mimeType === "text/plain" && sub.body?.data && !plain) {
+          plain = decodeBase64Url(sub.body.data);
+        } else if (sub.mimeType === "text/html" && sub.body?.data && !html) {
+          html = decodeBase64Url(sub.body.data);
+        }
+      }
     }
   }
-  return result;
+
+  return { plain, html };
 }
 
-function readCursor(row: ConnectorRow): number | null {
-  const cfg = row.config ?? {};
-  const gmail = (cfg as { gmail?: { lastForwardSyncAt?: unknown } }).gmail;
-  const v = gmail?.lastForwardSyncAt;
+function extractEmailHeaders(
+  rawHeaders: Array<{ name: string; value: string }> | undefined,
+): EmailHeaders {
+  if (!rawHeaders || rawHeaders.length === 0) return emptyHeaders();
+  const get = (name: string) =>
+    rawHeaders.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value ?? null;
+  return {
+    listUnsubscribe: get("List-Unsubscribe"),
+    listUnsubscribePost: get("List-Unsubscribe-Post"),
+    listId: get("List-Id"),
+    autoSubmitted: get("Auto-Submitted"),
+    precedence: get("Precedence"),
+    returnPath: get("Return-Path"),
+    replyTo: get("Reply-To"),
+    messageId: get("Message-ID") ?? get("Message-Id"),
+    inReplyTo: get("In-Reply-To"),
+    references: get("References"),
+  };
+}
+
+/** Parse a raw GmailMessage from the v2 getMessage() response into our local shape. */
+function parseGmailMessage(raw: {
+  id: string;
+  threadId: string;
+  labelIds: string[];
+  snippet: string;
+  internalDate: string;
+  payload?: GmailPayload;
+}): GmailMessage {
+  const headers = raw.payload?.headers ?? [];
+  const getHeader = (name: string) =>
+    headers.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value ?? null;
+  const { plain, html } = extractBodies(raw.payload);
+  return {
+    id: raw.id,
+    threadId: raw.threadId,
+    subject: getHeader("Subject"),
+    from: getHeader("From"),
+    date: getHeader("Date"),
+    body: plain ?? html,
+    bodyHtml: html,
+    snippet: raw.snippet || null,
+    labelIds: raw.labelIds ?? [],
+    headers: extractEmailHeaders(headers),
+  };
+}
+
+function readCursor(profile: Record<string, unknown> | null): number | null {
+  const v = (profile ?? {}).lastForwardSyncAt;
   return typeof v === "number" && v > 0 ? v : null;
 }
 
-async function persistCursor(db: Db, row: ConnectorRow, epochSeconds: number): Promise<void> {
-  const cfg = row.config ?? {};
-  const gmail = ((cfg as { gmail?: Record<string, unknown> }).gmail) ?? {};
-  const nextConfig = {
-    ...cfg,
-    gmail: { ...gmail, lastForwardSyncAt: epochSeconds },
-  };
+async function persistCursor(
+  db: Db,
+  account: AccountRow,
+  epochSeconds: number,
+): Promise<void> {
+  const profile = account.profile ?? {};
+  const nextProfile = { ...profile, lastForwardSyncAt: epochSeconds };
   await db
-    .execute(
-      sql`UPDATE connectors
-             SET config = ${JSON.stringify(nextConfig)}::jsonb,
-                 updated_at = now()
-           WHERE id = ${row.id}`,
-    )
+    .update(connectorAccounts)
+    .set({ profile: nextProfile, updatedAt: new Date() })
+    .where(eq(connectorAccounts.id, account.id))
     .catch(() => {});
 }
 
 /**
  * Build the `metadata` JSON payload for a freshly-ingested Gmail
- * message. Pure — exported for unit tests so we can assert
+ * message. Pure -- exported for unit tests so we can assert
  * prefilter behaviour without spinning up Postgres.
  */
 export function buildIngestMetadata(msg: GmailMessage, opts: { now?: Date } = {}): {
@@ -273,60 +330,104 @@ export interface InboxGmailForwardSyncOptions {
   eventBus?: EventBus;
 }
 
+export interface InboxGmailForwardSyncTicker {
+  start(): void;
+  stop(): void;
+  /** Single tick -- exposed for tests / manual triggers. */
+  tickOnce(): Promise<{ tenantsScanned: number; itemsCreated: number }>;
+}
+
 export function createInboxGmailForwardSyncTicker(
   db: Db,
+  authManager: AuthManager,
   options: InboxGmailForwardSyncOptions = {},
 ): InboxGmailForwardSyncTicker {
   const intervalMs = options.intervalMs ?? DEFAULT_INTERVAL_MS;
   let interval: ReturnType<typeof setInterval> | null = null;
 
   async function tickOnce(): Promise<{ tenantsScanned: number; itemsCreated: number }> {
-    // `forwardSyncEnabled` defaults on — only an explicit false (set via
-    // the connector's "pause email sync" toggle) drops a tenant from the
+    // `forwardSyncEnabled` defaults on -- only an explicit false (set via
+    // the connector's "pause email sync" toggle) drops an account from the
     // poll without disconnecting the connection.
-    const rowsResult = await db.execute(sql`
-      SELECT id, tenant_id, credentials, config
-        FROM connectors
-       WHERE kind = ${KIND_GMAIL}
-         AND status = ${"active"}
-         AND COALESCE(config->'gmail'->>'forwardSyncEnabled', 'true') <> 'false'
-    `);
-    const rows = rowsResult as unknown as ConnectorRow[];
+    const accounts = await db
+      .select({
+        id: connectorAccounts.id,
+        tenantId: connectorAccounts.tenantId,
+        accountId: connectorAccounts.accountId,
+        profile: connectorAccounts.profile,
+      })
+      .from(connectorAccounts)
+      .where(
+        and(
+          eq(connectorAccounts.provider, PROVIDER_GOOGLE),
+          eq(connectorAccounts.status, "active"),
+        ),
+      );
+
+    // Filter by forwardSyncEnabled in JS (cheaper than JSONB operator, and
+    // the table is expected to stay small).
+    const eligible = accounts.filter((a) => {
+      const profile = (a.profile ?? {}) as Record<string, unknown>;
+      return profile.forwardSyncEnabled !== false;
+    }) as AccountRow[];
 
     let tenantsScanned = 0;
     let itemsCreated = 0;
     const nowSeconds = Math.floor(Date.now() / 1000);
 
-    for (const row of rows) {
+    for (const account of eligible) {
       tenantsScanned += 1;
       try {
-        const cursor = readCursor(row);
+        const handle = await authManager.getToken(PROVIDER_GOOGLE, account.tenantId, CALLER_MODULE, {
+          accountId: account.accountId,
+        });
+        if (!handle) {
+          console.warn(
+            `[gmail-forward-sync] no token tenant=${account.tenantId} account=${account.accountId}`,
+          );
+          continue;
+        }
+
+        const gmail = new GmailClient(handle.getToken);
+        const cursor = readCursor(account.profile);
         // First run: catch the past hour. Subsequent runs: only new
         // messages since the last successful tick.
         const after = cursor ?? nowSeconds - FIRST_RUN_LOOKBACK_SECONDS;
         const query = `after:${after} -in:chats`;
 
-        const result = await runGmail(db, row, "list_emails", {
-          query,
-          maxResults: MAX_RESULTS_PER_TICK,
-        });
-        if (!result.success) {
-          // Don't advance the cursor — retry next tick.
+        let partialMessages: { id: string; threadId: string }[];
+        try {
+          partialMessages = await gmail.listMessages({ query, maxResults: MAX_RESULTS_PER_TICK });
+        } catch (err) {
           console.warn(
-            `[gmail-forward-sync] list_emails failed tenant=${row.tenant_id}:`,
-            result.error,
+            `[gmail-forward-sync] listMessages failed tenant=${account.tenantId}:`,
+            err instanceof Error ? err.message : err,
           );
           continue;
         }
 
-        const messages = ((result.data as { messages?: GmailMessage[] })?.messages ?? []) as GmailMessage[];
-        for (const msg of messages) {
+        for (const partial of partialMessages) {
+          // listMessages returns partial objects (id + threadId only).
+          // Fetch the full message to get subject, from, body, labelIds, etc.
+          let rawMsg: Awaited<ReturnType<typeof gmail.getMessage>>;
+          try {
+            rawMsg = await gmail.getMessage(partial.id);
+          } catch (err) {
+            console.warn(
+              `[gmail-forward-sync] getMessage failed tenant=${account.tenantId} msg=${partial.id}:`,
+              err instanceof Error ? err.message : err,
+            );
+            continue;
+          }
+
+          const msg = parseGmailMessage(rawMsg as Parameters<typeof parseGmailMessage>[0]);
+
           let item: IngestedInboxItem | null = null;
           try {
-            item = await ingestMessage(db, row.tenant_id, msg);
+            item = await ingestMessage(db, account.tenantId, msg);
           } catch (e) {
             console.warn(
-              `[gmail-forward-sync] ingest failed tenant=${row.tenant_id} msg=${msg.id}:`,
+              `[gmail-forward-sync] ingest failed tenant=${account.tenantId} msg=${msg.id}:`,
               e instanceof Error ? e.message : e,
             );
           }
@@ -335,14 +436,13 @@ export function createInboxGmailForwardSyncTicker(
 
           // Fire the ingest hook (used for triage/replier wakeups) and
           // emit an event-bus event for any other subscribers. Both run
-          // in best-effort mode — sync continues even if a listener
-          // throws.
+          // in best-effort mode -- sync continues even if a listener throws.
           if (options.onIngest) {
             try {
               await options.onIngest(item);
             } catch (e) {
               console.warn(
-                `[gmail-forward-sync] onIngest threw tenant=${row.tenant_id} item=${item.itemId}:`,
+                `[gmail-forward-sync] onIngest threw tenant=${account.tenantId} item=${item.itemId}:`,
                 e instanceof Error ? e.message : e,
               );
             }
@@ -350,7 +450,7 @@ export function createInboxGmailForwardSyncTicker(
           if (options.eventBus) {
             try {
               await options.eventBus.emit({
-                connectorKind: KIND_GMAIL,
+                connectorKind: PROVIDER_GOOGLE,
                 type: "inbox.item_created",
                 tenantId: item.tenantId,
                 timestamp: new Date(),
@@ -368,17 +468,17 @@ export function createInboxGmailForwardSyncTicker(
               });
             } catch (e) {
               console.warn(
-                `[gmail-forward-sync] eventBus.emit threw tenant=${row.tenant_id} item=${item.itemId}:`,
+                `[gmail-forward-sync] eventBus.emit threw tenant=${account.tenantId} item=${item.itemId}:`,
                 e instanceof Error ? e.message : e,
               );
             }
           }
         }
 
-        await persistCursor(db, row, nowSeconds);
+        await persistCursor(db, account, nowSeconds);
       } catch (err) {
         console.warn(
-          `[gmail-forward-sync] tenant=${row.tenant_id} error:`,
+          `[gmail-forward-sync] tenant=${account.tenantId} error:`,
           err instanceof Error ? err.message : err,
         );
       }

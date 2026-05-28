@@ -92,7 +92,9 @@
   ],
   "skills": [
     "skills/gmail.md",
-    "skills/calendar.md"
+    "skills/calendar.md",
+    "skills/contacts.md",
+    "skills/drive.md"
   ],
   "capabilities": [
     "auth:oauth:google",

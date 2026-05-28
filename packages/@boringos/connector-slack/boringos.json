@@ -82,5 +82,10 @@
     "actions:expose:3",
     "webhooks:receive:/events",
     "network:outbound:slack.com"
+  ],
+  "skills": [
+    "skills/messaging.md",
+    "skills/channels.md",
+    "skills/reactions.md"
   ]
 }

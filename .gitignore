@@ -16,6 +16,7 @@ coverage/
 .claude/
 plans/
 .npmrc
+.worktrees/
 # TypeScript incremental build cache — regenerates on every build.
 *.tsbuildinfo
 

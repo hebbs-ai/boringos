@@ -56,8 +56,9 @@ export const createGoogleModule: ModuleFactory = (deps) => ({
         try {
           const gmail = new GmailClient(conn.getToken);
           const messages = await gmail.listMessages({ query: input.query, maxResults: input.maxResults });
-          // Convention: list-style tools return a named-key object so the
-          // Shell (and other callers) read result.data.<name> uniformly.
+          // List-style tool — named-key result. See TOOLS.md → Result
+          // payload convention (hoisted in T0.2; this comment is now a
+          // pointer rather than the spec).
           return { ok: true as const, result: { messages } };
         } catch (e) {
           return upstreamFail(e);

@@ -180,6 +180,52 @@ on `retryable: true`, retry with backoff. On `retryable: false`,
 post a comment explaining what failed and either ask for help or
 mark the task blocked.
 
+### Result payload convention
+
+The `result` field on a successful `ToolResult<T>` follows a
+single, framework-wide convention so the Shell, Copilot, workflow
+template substitutions (`{{blockName.field}}`), and third-party
+consumers can read it uniformly without guessing the shape.
+
+- **List-style tools** — return a **named-key object** keyed by
+  the plural resource name:
+
+  ```ts
+  // gmail.list_emails
+  return { ok: true, result: { messages } };
+
+  // calendar.list_events
+  return { ok: true, result: { events } };
+
+  // crm.deals.list
+  return { ok: true, result: { deals } };
+  ```
+
+  The key MUST be the plural noun for the resource. This leaves
+  room for pagination / cursor fields to land alongside the list
+  without breaking the shape (e.g. `{ messages, nextPageToken }`).
+
+- **Singular tools** — return the value **directly**:
+
+  ```ts
+  // gmail.read_email
+  return { ok: true, result: message };
+
+  // calendar.get_event
+  return { ok: true, result: event };
+  ```
+
+  Wrapping a single object in a one-key dictionary is noise.
+
+**Why this matters.** Workflow templates reference upstream
+outputs as `{{step.field}}`, so list-shaped results consistently
+appear as `{{step.messages}}` and singular results as `{{step.id}}`
+without per-tool indirection. The Shell and Copilot use the same
+keyed access for renderers.
+
+**For error returns**, see `ToolError` above — that shape is fixed
+and does NOT vary by list vs singular.
+
 ---
 
 ## HTTP transport

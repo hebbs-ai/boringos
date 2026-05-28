@@ -41,6 +41,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import archiver from "archiver";
 import * as esbuild from "esbuild";
 
+import { parseManifest } from "../manifest.js";
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -302,33 +304,14 @@ function countFilesRecursive(dir: string): number {
   return n;
 }
 
-function validateManifest(
+// MDK T2.2 — id/version shape validation now lives in `manifest.ts`
+// via `parseManifest()`. This stub keeps the package.json-vs-manifest
+// version cross-check (a soft warning, not a hard fail).
+function warnOnPackageVersionDrift(
   manifest: ModuleManifestStatic,
   pkg: PackageJson,
 ): void {
-  if (!manifest.id || typeof manifest.id !== "string") {
-    throw new Error("module.json: missing required string field 'id'");
-  }
-  if (!ID_RE.test(manifest.id)) {
-    throw new Error(
-      `module.json: invalid 'id' "${manifest.id}". ` +
-        `Must match /^[a-z][a-z0-9-]*$/ (lowercase, hyphenated).`,
-    );
-  }
-  if (!manifest.version || typeof manifest.version !== "string") {
-    throw new Error("module.json: missing required string field 'version'");
-  }
-  if (!SEMVER_RE.test(manifest.version)) {
-    throw new Error(
-      `module.json: invalid 'version' "${manifest.version}". ` +
-        `Must be semver-shaped (e.g. 1.2.3 or 1.2.3-beta.1).`,
-    );
-  }
-  if (
-    pkg.version &&
-    pkg.version !== manifest.version
-  ) {
-    // Not fatal — package.json can lag — but warn loudly.
+  if (pkg.version && pkg.version !== manifest.version) {
     process.stderr.write(
       `[pack-hebbsmod] warning: package.json version "${pkg.version}" ` +
         `does not match module.json version "${manifest.version}". ` +
@@ -588,9 +571,15 @@ async function main(): Promise<void> {
 
   const paths = resolvePaths(args.pkg, earlyManifest);
   const pkg = readJson<PackageJson>(paths.packageJson);
-  const manifest =
-    earlyManifest ?? readJson<ModuleManifestStatic>(paths.moduleJson);
-  validateManifest(manifest, pkg);
+  const rawManifest =
+    earlyManifest ?? readJson<unknown>(paths.moduleJson);
+  // MDK T2.2 — single zod-validated parse. Replaces the pre-T2.2
+  // ad-hoc field-by-field validateManifest(). Throws on shape errors.
+  const parsedManifest = parseManifest(rawManifest);
+  // ModuleManifestStatic predates the zod schema; treat the parsed
+  // value as compatible since the zod shape is a superset.
+  const manifest = parsedManifest as ModuleManifestStatic;
+  warnOnPackageVersionDrift(manifest, pkg);
 
   if (!existsSync(paths.distDir)) {
     mkdirSync(paths.distDir, { recursive: true });

@@ -27,3 +27,16 @@ export { inferModuleKind } from "./types.js";
 // on `safeParse` so other libraries also work, but Zod is the
 // blessed choice.
 export { z } from "zod";
+
+// Static `module.json` manifest schema (MDK T2.2). Consumed by
+// `pack-hebbsmod`, the host install-manager, and third-party
+// scaffolders.
+export {
+  ManifestSchema,
+  parseManifest,
+  compareSemver,
+  checkMinFrameworkVersion,
+  MODULE_ID_RE,
+  SEMVER_RE,
+  type Manifest,
+} from "./manifest.js";

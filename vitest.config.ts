@@ -22,6 +22,7 @@ export default defineConfig({
       "@boringos/shell": resolve(__dirname, "packages/@boringos/shell/src"),
       "@boringos/control-plane": resolve(__dirname, "packages/@boringos/control-plane/src/index.ts"),
       "@boringos/dev-host": resolve(__dirname, "packages/@boringos/dev-host/src/index.ts"),
+      "@boringos/hebbs-cli": resolve(__dirname, "packages/@boringos/hebbs-cli/src/index.ts"),
     },
   },
   test: {

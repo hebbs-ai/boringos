@@ -1,0 +1,33 @@
+{
+  "name": "@boringos/hebbs-cli",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "hebbs": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "license": "AGPL-3.0-or-later",
+  "dependencies": {
+    "@boringos/dev-host": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.3"
+  },
+  "description": "Hebbs CLI — `hebbs test <module>` runs a headless host harness against a .hebbsmod or built module package. MDK Phase 4.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hebbs-ai/boringos.git"
+  }
+}

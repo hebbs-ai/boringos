@@ -38,6 +38,7 @@ import { activityLog, modulePackages, moduleInstalls } from "@boringos/db";
 import { generateId } from "@boringos/shared";
 import type { InstallManager } from "@boringos/agent";
 import {
+  checkMinFrameworkVersion,
   inferModuleKind,
   type Module,
   type ModuleFactory,
@@ -77,6 +78,15 @@ export interface ModulePackageRoutesDeps {
   /** Optional override for the on-disk extract root. Defaults to
    *  `<cwd>/.data/module-store/` or `$MODULES_STORE_DIR`. */
   modulesStoreDir?: string;
+  /**
+   * Host framework version, used to evaluate each uploaded bundle's
+   * `module.json.minFrameworkVersion`. When undefined, the
+   * `minFrameworkVersion` field is ignored at upload time (back-compat
+   * fallback). Set this in production so too-new bundles fail fast
+   * with an `incompatible_framework` error rather than crashing later
+   * at registerModule time. MDK T2.3.
+   */
+  frameworkVersion?: string;
   /** Reads the auth context. Reuses the existing admin pattern
    *  (`X-Tenant-Id` for machine clients; sessions resolved upstream). */
   resolveTenantId: (req: Request) => string | null;
@@ -101,6 +111,8 @@ interface ParsedManifest {
   id: string;
   version: string;
   kind?: ModuleKind;
+  /** MDK T2.3 — minimum framework version this bundle requires. */
+  minFrameworkVersion?: string;
 }
 
 function validateManifest(raw: unknown): { ok: true; manifest: ParsedManifest } | { ok: false; reason: string } {
@@ -109,6 +121,7 @@ function validateManifest(raw: unknown): { ok: true; manifest: ParsedManifest } 
   const id = m.id;
   const version = m.version;
   const kind = m.kind;
+  const minFrameworkVersion = m.minFrameworkVersion;
   if (typeof id !== "string" || !ID_PATTERN.test(id)) {
     return { ok: false, reason: `module.json.id must match ${ID_PATTERN}` };
   }
@@ -120,12 +133,22 @@ function validateManifest(raw: unknown): { ok: true; manifest: ParsedManifest } 
       return { ok: false, reason: `module.json.kind must be one of ${KIND_VALUES.join("|")}` };
     }
   }
+  if (minFrameworkVersion !== undefined && minFrameworkVersion !== null) {
+    if (typeof minFrameworkVersion !== "string" || !SEMVER_PATTERN.test(minFrameworkVersion)) {
+      return {
+        ok: false,
+        reason: `module.json.minFrameworkVersion must be semver (got ${JSON.stringify(minFrameworkVersion)})`,
+      };
+    }
+  }
   return {
     ok: true,
     manifest: {
       id,
       version,
       kind: (kind ?? undefined) as ModuleKind | undefined,
+      minFrameworkVersion:
+        typeof minFrameworkVersion === "string" ? minFrameworkVersion : undefined,
     },
   };
 }
@@ -368,6 +391,27 @@ export function createModulePackageRoutes(
         );
       }
       manifest = validation.manifest;
+
+      // MDK T2.3 — enforce minFrameworkVersion before any side-effect.
+      if (deps.frameworkVersion && manifest.minFrameworkVersion) {
+        const compat = checkMinFrameworkVersion(
+          { minFrameworkVersion: manifest.minFrameworkVersion },
+          deps.frameworkVersion,
+        );
+        if (!compat.ok) {
+          await rm(extractRoot, { recursive: true, force: true });
+          return c.json(
+            {
+              ok: false,
+              error: {
+                code: "incompatible_framework",
+                message: `${manifest.id}@${manifest.version}: ${compat.reason}`,
+              },
+            },
+            400,
+          );
+        }
+      }
 
       // 4. Version-exists check.
       const existingByVersion = await deps.db

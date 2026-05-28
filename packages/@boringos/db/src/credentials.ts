@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
 // Credential helpers — AES-256-GCM wrap/unwrap for the `credentials`
-// column on the `connectors` table.
+// column on the `connector_accounts` table.
 //
 // Usage:
 //   import { packCredentials, unpackCredentials } from "@boringos/db";

@@ -3,6 +3,11 @@
 // One-shot migration: encrypt any connectors rows that still hold plaintext
 // credentials from before the Task 0.2 deployment.
 //
+// This script uses raw SQL so it does NOT depend on the Drizzle schema for
+// the legacy connectors table (which was deleted in Task 2.11). It is a
+// Phase 0 script and should be run BEFORE migrate-connectors-to-accounts.ts,
+// which should in turn be run BEFORE the Task 2.11 DROP TABLE migration.
+//
 // Run once per environment after deploying the encryption change:
 //
 //   BORINGOS_ENCRYPTION_KEY=<hex> DATABASE_URL=<url> \
@@ -13,10 +18,7 @@
 //   - Rows with NULL credentials are skipped.
 //   - Plaintext objects are encrypted and written back.
 
-import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { eq } from "drizzle-orm";
-import { connectors } from "../src/schema/connectors.js";
 import { packCredentials } from "../src/credentials.js";
 
 async function main() {
@@ -24,9 +26,27 @@ async function main() {
   if (!databaseUrl) throw new Error("DATABASE_URL not set");
 
   const client = postgres(databaseUrl, { onnotice: () => {} });
-  const db = drizzle(client);
 
-  const rows = await db.select().from(connectors);
+  // Check whether the legacy connectors table still exists.
+  const tableCheck = await client<Array<{ exists: boolean }>>`
+    SELECT EXISTS (
+      SELECT FROM information_schema.tables
+      WHERE table_schema = 'public' AND table_name = 'connectors'
+    ) AS exists
+  `;
+  if (!tableCheck[0]?.exists) {
+    console.log("Legacy connectors table does not exist -- nothing to encrypt.");
+    await client.end();
+    return;
+  }
+
+  const rows = await client<Array<{
+    id: string;
+    credentials: string | Record<string, unknown> | null;
+  }>>`
+    SELECT id, credentials FROM connectors
+  `;
+
   let encrypted = 0;
   let skipped = 0;
 
@@ -42,15 +62,10 @@ async function main() {
       continue;
     }
     // Plain object: encrypt and write back.
-    // The `as never` cast is intentional. Drizzle types `credentials` as
-    // JSONB (object). The encrypted string goes through the same column.
-    // Task 2.1 will re-type this column properly; for now the cast is
-    // documented and load-bearing.
     const sealed = packCredentials(row.credentials as Record<string, unknown>);
-    await db
-      .update(connectors)
-      .set({ credentials: sealed as never })
-      .where(eq(connectors.id, row.id));
+    await client`
+      UPDATE connectors SET credentials = ${sealed} WHERE id = ${row.id}
+    `;
     encrypted++;
   }
 

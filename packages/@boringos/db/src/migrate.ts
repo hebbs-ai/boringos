@@ -198,17 +198,10 @@ async function _applySchema(db: Db): Promise<void> {
     -- (origin_kind="agent_action") with metadata.approval. See
     -- docs/blockers/done/task_06_collapse_approvals_into_tasks.md.
 
-    CREATE TABLE IF NOT EXISTS connectors (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      tenant_id UUID NOT NULL REFERENCES tenants(id),
-      kind TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'active',
-      config JSONB NOT NULL DEFAULT '{}',
-      credentials JSONB,
-      last_sync_at TIMESTAMPTZ,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    );
+    -- Task 2.11: drop the legacy connectors table. All credential storage
+    -- has moved to connector_accounts (multi-account, AES-256-GCM TEXT creds).
+    -- CASCADE handles any orphaned foreign keys (none expected in practice).
+    DROP TABLE IF EXISTS connectors CASCADE;
 
     CREATE TABLE IF NOT EXISTS company_skills (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

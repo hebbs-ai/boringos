@@ -2,29 +2,23 @@
 //
 // Connection routes: OAuth dance + tenant-connection listing.
 //
-// Legacy connector routes mounted: OAuth flow, webhook receivers, action invocation,
-// connector definition listing. The legacy framework is gone; this
-// file now mounts ONLY:
+// Handlers mounted here:
 //
 //   - GET  /oauth/:provider/authorize : start the OAuth dance (delegates to AuthManager)
 //   - GET  /oauth/:provider/callback  : provider callback (delegates to AuthManager)
 //   - GET  /connectors                : list providers + per-tenant
 //                                       connection state (for the shell)
-//   - POST /disconnect/:kind          : admin removes credentials
+//   - GET  /status                    : same as /connectors (legacy name)
+//   - POST /disconnect/:kind          : admin removes all accounts for a provider
+//   - POST /:kind/sync                : pause/resume Gmail forward-sync
 //
-// The authorize/callback handlers now delegate to AuthManager (Task 2.5).
-// The listing/disconnect/sync routes still read from the legacy `connectors`
-// table and are untouched until Task 2.11 drops that table.
-//
-// Action invocation and webhook receivers moved to:
-//   - /api/tools/<module>.<action> for actions
-//   - /api/webhooks/<module-id>/<event> for inbound webhooks
-//     (mounted by the Module registry)
+// All listing/disconnect/sync handlers read from connector_accounts (Task 2.11).
+// The legacy `connectors` table is gone.
 
 import { Hono, type Context } from "hono";
 import { eq, and, sql } from "drizzle-orm";
 import type { Db } from "@boringos/db";
-import { connectors } from "@boringos/db";
+import { connectorAccounts } from "@boringos/db";
 import type { AuthManager } from "./auth-manager.js";
 import type { EventBus } from "./event-bus.js";
 
@@ -55,11 +49,10 @@ function listProviders(authManager?: AuthManager): ProviderEntry[] {
   }));
 }
 
-// Forward-sync defaults ON: a connected connector with no explicit flag
-// keeps ingesting. Only an explicit `false` pauses it.
-function readForwardSyncEnabled(config: unknown): boolean {
-  const gmail = (config as { gmail?: { forwardSyncEnabled?: unknown } } | null)?.gmail;
-  return gmail?.forwardSyncEnabled !== false;
+// Forward-sync defaults ON: a connected account with no explicit flag
+// keeps ingesting. Only an explicit `false` (stored in profile JSONB) pauses it.
+function readForwardSyncEnabled(profile: Record<string, unknown> | null | undefined): boolean {
+  return (profile as { forwardSyncEnabled?: unknown } | null)?.forwardSyncEnabled !== false;
 }
 
 function publicOrigin(c: Context, baseUrl: string): string {
@@ -78,9 +71,7 @@ export function createConnectorRoutes(
   // eventBus is reserved for future webhook routing; kept on the
   // signature so callers don't have to change.
   _eventBus: EventBus,
-  // jwtSecret is kept on the signature for backward compatibility;
-  // the OAuth dance now delegates to AuthManager which carries its
-  // own state secret. Kept until Task 2.11 restructures this signature.
+  // jwtSecret is kept on the signature for backward compatibility.
   _jwtSecret: string,
   baseUrl: string,
   opts: ConnectorRoutesOptions = {},
@@ -97,14 +88,6 @@ export function createConnectorRoutes(
   }
 
   // ── OAuth (v2 path: delegates to AuthManager) ───────────────
-  //
-  // When authManager is present (always at boot from Task 2.4),
-  // the authorize/callback handlers go through AuthManager which
-  // uses auth-manager-state.ts for state signing and stores tokens
-  // in the new connector_accounts table.
-  //
-  // Fallback to the legacy path is NOT provided here because
-  // authManager is always injected by boringos.ts since Task 2.4.
 
   app.get("/oauth/:provider/authorize", async (c) => {
     const provider = c.req.param("provider");
@@ -172,6 +155,17 @@ export function createConnectorRoutes(
   //
   // Mounted at both `/status` (Connectors screen) and `/connectors`
   // (ui/client hooks). Same handler, different historical names.
+  //
+  // Response shape (unchanged from before):
+  //   { connectors: ConnectorStatusRow[], tenantId: string }
+  //
+  // ConnectorStatusRow fields:
+  //   kind, name, description, hasOAuth, oauthScopes, connected, status,
+  //   lastSyncAt (null -- field no longer on connector_accounts), forwardSyncEnabled
+  //
+  // When a tenant has multiple accounts for the same provider (multi-account),
+  // the listing reports the provider as connected if any account is active.
+  // `forwardSyncEnabled` reflects the first active account's profile flag.
 
   const listingHandler = async (c: Context) => {
     // Browser flow: resolve tenant from session token.
@@ -190,9 +184,24 @@ export function createConnectorRoutes(
       tenantId = rows[0].tenant_id;
     }
 
-    const connected = await db.select().from(connectors).where(eq(connectors.tenantId, tenantId));
+    const accounts = await db
+      .select()
+      .from(connectorAccounts)
+      .where(eq(connectorAccounts.tenantId, tenantId));
+
+    // Group accounts by provider. For the per-provider summary the shell
+    // expects, we pick the first active account (or any account if none
+    // are active) to derive the status + forwardSyncEnabled flag.
+    const byProvider = new Map<string, typeof accounts[number]>();
+    for (const acct of accounts) {
+      const existing = byProvider.get(acct.provider);
+      if (!existing || acct.status === "active") {
+        byProvider.set(acct.provider, acct);
+      }
+    }
+
     const available = listProviders(authManager).map((p) => {
-      const match = connected.find((c) => c.kind === p.kind);
+      const match = byProvider.get(p.kind);
       return {
         kind: p.kind,
         name: p.name,
@@ -200,9 +209,13 @@ export function createConnectorRoutes(
         hasOAuth: true,
         oauthScopes: p.scopes,
         connected: !!match,
+        // Map connector_accounts.status; fall back to "not_connected" when absent.
         status: match?.status ?? "not_connected",
-        lastSyncAt: match?.lastSyncAt,
-        forwardSyncEnabled: readForwardSyncEnabled(match?.config),
+        // connector_accounts has no lastSyncAt -- always null.
+        lastSyncAt: null as null,
+        forwardSyncEnabled: readForwardSyncEnabled(
+          match?.profile as Record<string, unknown> | null | undefined,
+        ),
       };
     });
 
@@ -213,6 +226,10 @@ export function createConnectorRoutes(
   app.get("/connectors", listingHandler);
 
   // ── Disconnect ────────────────────────────────────────────
+  //
+  // Removes ALL connector_accounts rows for the given provider + tenant.
+  // Uses AuthManager.removeAccount for each account found so bindings
+  // are also cleaned up.
 
   app.post("/disconnect/:kind", async (c) => {
     const kind = c.req.param("kind");
@@ -228,21 +245,45 @@ export function createConnectorRoutes(
     if (!rows[0]) return c.json({ error: "Invalid session" }, 401);
     if (rows[0].role !== "admin") return c.json({ error: "Admin only" }, 403);
 
-    await db
-      .delete(connectors)
-      .where(and(eq(connectors.tenantId, rows[0].tenant_id), eq(connectors.kind, kind)));
+    const tenantId = rows[0].tenant_id;
+
+    if (authManager) {
+      // Remove each account individually so AuthManager also cleans up bindings.
+      const existing = await db
+        .select({ accountId: connectorAccounts.accountId })
+        .from(connectorAccounts)
+        .where(
+          and(
+            eq(connectorAccounts.tenantId, tenantId),
+            eq(connectorAccounts.provider, kind),
+          ),
+        );
+      for (const acct of existing) {
+        await authManager.removeAccount(kind, acct.accountId, tenantId);
+      }
+    } else {
+      // Fallback: direct delete (no authManager = no binding cleanup needed).
+      await db
+        .delete(connectorAccounts)
+        .where(
+          and(
+            eq(connectorAccounts.tenantId, tenantId),
+            eq(connectorAccounts.provider, kind),
+          ),
+        );
+    }
 
     return c.json({ ok: true });
   });
 
   // ── Forward-sync toggle ───────────────────────────────────
   //
-  // Pause/resume the Gmail forward-sync ticker for this tenant
-  // WITHOUT tearing down the connection. Flips
-  // `config.gmail.forwardSyncEnabled`; the ticker
-  // (inbox-gmail-forward-sync.ts) skips connectors where it is false.
-  // Reversible and non-destructive, so (unlike disconnect) it is
-  // not admin-gated; any tenant member can pause their own sync.
+  // Pause/resume the Gmail forward-sync ticker for this tenant WITHOUT
+  // tearing down the connection. Flips `profile.forwardSyncEnabled` on all
+  // connector_accounts rows for the given provider + tenant. The ticker
+  // (inbox-gmail-forward-sync.ts) skips accounts where it is false.
+  // Reversible and non-destructive, so (unlike disconnect) it is not
+  // admin-gated; any tenant member can pause their own sync.
 
   app.post("/:kind/sync", async (c) => {
     const kind = c.req.param("kind");
@@ -266,19 +307,24 @@ export function createConnectorRoutes(
 
     const existing = await db
       .select()
-      .from(connectors)
-      .where(and(eq(connectors.tenantId, tenantId), eq(connectors.kind, kind)))
-      .limit(1);
-    if (!existing[0]) return c.json({ error: "Connector not connected" }, 404);
+      .from(connectorAccounts)
+      .where(
+        and(
+          eq(connectorAccounts.tenantId, tenantId),
+          eq(connectorAccounts.provider, kind),
+        ),
+      );
+    if (!existing.length) return c.json({ error: "Connector not connected" }, 404);
 
-    const cfg = (existing[0].config as Record<string, unknown> | null) ?? {};
-    const gmail = (cfg.gmail as Record<string, unknown> | undefined) ?? {};
-    const nextConfig = { ...cfg, gmail: { ...gmail, forwardSyncEnabled: enabled } };
-
-    await db
-      .update(connectors)
-      .set({ config: nextConfig, updatedAt: new Date() })
-      .where(eq(connectors.id, existing[0].id));
+    // Update forwardSyncEnabled on all accounts for this provider.
+    for (const acct of existing) {
+      const profile = (acct.profile as Record<string, unknown> | null) ?? {};
+      const nextProfile = { ...profile, forwardSyncEnabled: enabled };
+      await db
+        .update(connectorAccounts)
+        .set({ profile: nextProfile, updatedAt: new Date() })
+        .where(eq(connectorAccounts.id, acct.id));
+    }
 
     return c.json({ ok: true, kind, forwardSyncEnabled: enabled });
   });

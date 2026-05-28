@@ -44,7 +44,6 @@ export const FRAMEWORK_TABLES = [
   "budget_incidents",
   "execution_workspaces",
   "company_skills",
-  "connectors",
   "canonical_items",
   "workflows",
   "routines",

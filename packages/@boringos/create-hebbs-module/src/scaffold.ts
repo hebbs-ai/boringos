@@ -72,8 +72,11 @@ export async function scaffold(opts: ScaffoldOptions): Promise<ScaffoldResult> {
 
   await mkdir(targetDir, { recursive: true });
   await mkdir(join(targetDir, "src"), { recursive: true });
+  await mkdir(join(targetDir, "src", "migrations"), { recursive: true });
+  await mkdir(join(targetDir, "src", "skills"), { recursive: true });
 
   const files: string[] = [];
+  const tableName = `${opts.id.replace(/-/g, "_")}__demo`;
 
   // ── module.json ───────────────────────────────────────────
   await writeFile(
@@ -150,28 +153,57 @@ export async function scaffold(opts: ScaffoldOptions): Promise<ScaffoldResult> {
   );
   files.push("tsconfig.json");
 
-  // ── src/module.ts ─────────────────────────────────────────
+  // ── src/module.ts (one-of-each surface — T5.2) ─────────────
+  const factory = `create${pascal(opts.id)}Module`;
   await writeFile(
     join(targetDir, "src", "module.ts"),
     [
       `// ${displayName} — scaffolded by create-hebbs-module.`,
+      `//`,
+      `// One-of-each surface (T5.2): a tool, a skill file ref, a demo`,
+      `// schema migration, a seeded agent, a seeded workflow, and a`,
+      `// cron routine. Trim anything you don't need.`,
       ``,
+      `import { dirname } from "node:path";`,
+      `import { fileURLToPath } from "node:url";`,
       `import { z } from "@boringos/module-sdk";`,
-      `import type { Module, ModuleFactory } from "@boringos/module-sdk";`,
+      `import type {`,
+      `  Module,`,
+      `  ModuleFactory,`,
+      `  Migration,`,
+      `} from "@boringos/module-sdk";`,
       ``,
-      `export const create${pascal(opts.id)}Module: ModuleFactory = () => {`,
+      `const __moduleDir = dirname(fileURLToPath(import.meta.url));`,
+      ``,
+      `const demoMigration: Migration = {`,
+      `  id: "${opts.id}_demo_001",`,
+      `  async up(db) {`,
+      `    await db.execute(\``,
+      `      CREATE TABLE IF NOT EXISTS ${tableName} (`,
+      `        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),`,
+      `        tenant_id uuid NOT NULL,`,
+      `        note text NOT NULL,`,
+      `        created_at timestamptz NOT NULL DEFAULT now()`,
+      `      )`,
+      `    \`);`,
+      `  },`,
+      `  async down(db) {`,
+      `    await db.execute(\`DROP TABLE IF EXISTS ${tableName}\`);`,
+      `  },`,
+      `};`,
+      ``,
+      `export const ${factory}: ModuleFactory = () => {`,
       `  const module: Module = {`,
       `    id: "${opts.id}",`,
       `    name: "${displayName}",`,
       `    version: "0.1.0",`,
       `    description: ${JSON.stringify(description)},`,
-      `    skills: [`,
-      `      {`,
-      `        id: "${opts.id}",`,
-      `        source: "module",`,
-      `        body: "Use \\\`${opts.id}.greet\\\` to greet someone by name.",`,
-      `      },`,
-      `    ],`,
+      `    defaultInstall: false,`,
+      ``,
+      `    // SKILL.md teaches the agent how to call your tools.`,
+      `    skills: ["./skills/${opts.id}.md"],`,
+      ``,
+      `    // Tools: zod-validated callables the agent dispatches.`,
       `    tools: [`,
       `      {`,
       `        name: "greet",`,
@@ -185,15 +217,99 @@ export async function scaffold(opts: ScaffoldOptions): Promise<ScaffoldResult> {
       `        },`,
       `      },`,
       `    ],`,
+      ``,
+      `    // Schema: a single demo table. Tenant-scoped via tenant_id.`,
+      `    schema: [demoMigration],`,
+      ``,
+      `    // One seeded agent — the host hires it on install.`,
+      `    agents: [`,
+      `      {`,
+      `        name: "${displayName} Concierge",`,
+      `        persona: "personas-default.assistant",`,
+      `        instructions: "Greet visitors and help them with ${opts.id} tasks.",`,
+      `        tools: ["${opts.id}.greet"],`,
+      `      },`,
+      `    ],`,
+      ``,
+      `    // One seeded workflow — runs a single tool node.`,
+      `    workflows: [`,
+      `      {`,
+      `        name: "${opts.id}.daily_greet",`,
+      `        description: "Greet a test user every day.",`,
+      `        blocks: [`,
+      `          {`,
+      `            id: "greet-1",`,
+      `            kind: "tool",`,
+      `            tool: "${opts.id}.greet",`,
+      `            inputs: { name: "Friend" },`,
+      `          },`,
+      `        ],`,
+      `        edges: [],`,
+      `      },`,
+      `    ],`,
+      ``,
+      `    // One cron routine — fires the workflow daily at 9am UTC.`,
+      `    routines: [`,
+      `      {`,
+      `        id: "${opts.id}-daily-9am",`,
+      `        title: "Daily greet at 9am UTC",`,
+      `        trigger: { kind: "cron", cronExpression: "0 9 * * *", timezone: "UTC" },`,
+      `        tool: "${opts.id}.greet",`,
+      `        inputs: { name: "Friend" },`,
+      `      },`,
+      `    ],`,
+      ``,
+      `    __moduleDir,`,
       `  };`,
       `  return module;`,
       `};`,
       ``,
-      `export default create${pascal(opts.id)}Module;`,
+      `export default ${factory};`,
       ``,
     ].join("\n"),
   );
   files.push("src/module.ts");
+
+  // ── src/skills/<id>.md ──────────────────────────────────
+  await writeFile(
+    join(targetDir, "src", "skills", `${opts.id}.md`),
+    [
+      `# ${displayName}`,
+      ``,
+      `Use \`${opts.id}.greet\` to greet someone by name. Pass`,
+      `\`{ name: string }\` — returns \`{ greeting: string }\`.`,
+      ``,
+      `Examples of when this is useful:`,
+      `- A user shared their name in copilot; reply with a personalised greeting.`,
+      `- A workflow needs to acknowledge an inbound lead.`,
+      ``,
+    ].join("\n"),
+  );
+  files.push(`src/skills/${opts.id}.md`);
+
+  // ── src/migrations/001-demo.sql ─────────────────────────
+  // The framework reads migrations from Module.schema; this SQL
+  // file is kept around as a human-readable record of the demo
+  // table for ops + IDE tooling.
+  await writeFile(
+    join(targetDir, "src", "migrations", "001-demo.sql"),
+    [
+      `-- ${displayName} demo table.`,
+      `--`,
+      `-- Mirror of the migration shipped via Module.schema in src/module.ts.`,
+      `-- The framework runs the TS version at install time; this file is`,
+      `-- here so reviewers and ops can see the DDL in one place.`,
+      ``,
+      `CREATE TABLE IF NOT EXISTS ${tableName} (`,
+      `  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),`,
+      `  tenant_id uuid NOT NULL,`,
+      `  note text NOT NULL,`,
+      `  created_at timestamptz NOT NULL DEFAULT now()`,
+      `);`,
+      ``,
+    ].join("\n"),
+  );
+  files.push("src/migrations/001-demo.sql");
 
   // ── src/index.ts ──────────────────────────────────────────
   await writeFile(

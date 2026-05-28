@@ -17,7 +17,7 @@ import { scaffold } from "create-hebbs-module";
 import { parseManifest } from "@boringos/module-sdk";
 
 describe("MDK T5.1 — create-hebbs-module scaffolder", () => {
-  it("emits the seven expected files for the minimum-viable template", async () => {
+  it("emits the one-of-each template files (T5.2)", async () => {
     const dir = await mkdtemp(join(tmpdir(), "create-hebbs-module-"));
     try {
       const result = await scaffold({
@@ -33,6 +33,8 @@ describe("MDK T5.1 — create-hebbs-module scaffolder", () => {
         "tsconfig.json",
         "src/module.ts",
         "src/index.ts",
+        "src/skills/demo.md",
+        "src/migrations/001-demo.sql",
         "README.md",
         ".gitignore",
       ];
@@ -40,6 +42,40 @@ describe("MDK T5.1 — create-hebbs-module scaffolder", () => {
         expect(existsSync(join(dir, f))).toBe(true);
       }
       expect(result.files).toEqual(expect.arrayContaining(expectedFiles));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("module.ts carries each of the one-of-each surfaces (tool / skill / schema / agent / workflow / routine)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "create-hebbs-module-"));
+    try {
+      await scaffold({ id: "demo", targetDir: dir });
+      const src = await readFile(join(dir, "src", "module.ts"), "utf8");
+      expect(src).toMatch(/tools:\s*\[/);
+      expect(src).toMatch(/skills:\s*\[/);
+      expect(src).toMatch(/schema:\s*\[/);
+      expect(src).toMatch(/agents:\s*\[/);
+      expect(src).toMatch(/workflows:\s*\[/);
+      expect(src).toMatch(/routines:\s*\[/);
+      // Demo table name follows the `<id>__demo` convention.
+      expect(src).toContain("demo__demo");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("kebab-case id sanitises the demo table name (underscores, not hyphens)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "create-hebbs-module-"));
+    try {
+      await scaffold({ id: "lead-router", targetDir: dir });
+      const sql = await readFile(
+        join(dir, "src", "migrations", "001-demo.sql"),
+        "utf8",
+      );
+      // Postgres unquoted identifiers can't contain hyphens.
+      expect(sql).toContain("lead_router__demo");
+      expect(sql).not.toContain("lead-router__demo");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

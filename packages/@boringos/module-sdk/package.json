@@ -27,7 +27,17 @@
     "yauzl": "^3.2.0",
     "zod": "^3.23.0"
   },
+  "peerDependencies": {
+    "@boringos/memory": "^0.1.9",
+    "@boringos/drive": "^0.1.9"
+  },
+  "peerDependenciesMeta": {
+    "@boringos/memory": { "optional": true },
+    "@boringos/drive": { "optional": true }
+  },
   "devDependencies": {
+    "@boringos/drive": "workspace:*",
+    "@boringos/memory": "workspace:*",
     "@types/archiver": "^6.0.2",
     "@types/node": "^22.0.0",
     "@types/yauzl": "^2.10.3",

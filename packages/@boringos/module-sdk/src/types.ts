@@ -12,6 +12,14 @@
 // See docs/blockers/task_12_greenfield_rebuild.md for the full
 // architectural rationale.
 
+// MDK T3.1a — type-only imports for `ModuleFactoryDeps.memory` and
+// `.drive`. These packages don't depend on @boringos/module-sdk, so
+// the resulting type relationship is cycle-free. Declared as
+// optional peer deps in this package's package.json — consumers
+// that don't touch memory/drive don't need to install them.
+import type { MemoryProvider } from "@boringos/memory";
+import type { StorageBackend } from "@boringos/drive";
+
 /**
  * Anything carrying a tenantId. Modules are tenant-scoped via
  * install state; tools and skills are dispatched within a tenant.
@@ -383,10 +391,17 @@ export interface ModuleContext {
  */
 export interface ModuleFactoryDeps {
   db: unknown;
-  /** The configured MemoryProvider (cast to your concrete type). */
-  memory?: unknown;
-  /** The configured StorageBackend. */
-  drive?: unknown;
+  /**
+   * The configured `MemoryProvider`. Type comes from
+   * `@boringos/memory` (an optional peer dep — modules that don't
+   * touch memory don't need it installed). MDK T3.1a.
+   */
+  memory?: MemoryProvider;
+  /**
+   * The configured `StorageBackend`. Type comes from
+   * `@boringos/drive` (an optional peer dep). MDK T3.1a.
+   */
+  drive?: StorageBackend;
   /** The agent engine instance. */
   engine?: unknown;
   /** The workflow engine instance. */

@@ -286,6 +286,12 @@ importers:
         specifier: ^3.23.0
         version: 3.25.76
     devDependencies:
+      '@boringos/drive':
+        specifier: workspace:*
+        version: link:../drive
+      '@boringos/memory':
+        specifier: workspace:*
+        version: link:../memory
       '@types/archiver':
         specifier: ^6.0.2
         version: 6.0.4

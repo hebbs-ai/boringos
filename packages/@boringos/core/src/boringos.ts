@@ -504,7 +504,7 @@ export class BoringOS {
     const authManager = new AuthManager(
       dbConn.db,
       authManagerSecret,
-      (provider: string) => `${publicBase}/oauth/${provider}/callback`,
+      (provider: string) => `${publicBase}/api/connectors/oauth/${provider}/callback`,
     );
     authManager.registerConnector(googleConnector);
     authManager.registerConnector(slackConnector);

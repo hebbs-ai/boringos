@@ -73,12 +73,93 @@ describe("MDK T5.1 — create-hebbs-module scaffolder", () => {
         join(dir, "src", "migrations", "001-demo.sql"),
         "utf8",
       );
-      // Postgres unquoted identifiers can't contain hyphens.
       expect(sql).toContain("lead_router__demo");
       expect(sql).not.toContain("lead-router__demo");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+
+  // ── T5.3 — recipe variants ─────────────────────────────────
+
+  it("--template data emits two tables + items.create/items.list, no agents/workflows/routines", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "create-hebbs-module-data-"));
+    try {
+      const result = await scaffold({ id: "shop", targetDir: dir, template: "data" });
+      expect(result.template).toBe("data");
+      const src = await readFile(join(dir, "src", "module.ts"), "utf8");
+      expect(src).toContain("items.create");
+      expect(src).toContain("items.list");
+      expect(src).toContain("shop__demo_items");
+      expect(src).toContain("shop__demo_categories");
+      expect(src).not.toMatch(/agents:\s*\[/);
+      expect(src).not.toMatch(/workflows:\s*\[/);
+      expect(src).not.toMatch(/routines:\s*\[/);
+      const sql = await readFile(
+        join(dir, "src", "migrations", "001-demo.sql"),
+        "utf8",
+      );
+      expect(sql).toContain("shop__demo_items");
+      expect(sql).toContain("shop__demo_categories");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("--template agent-only emits a seeded agent and no tools/schema/migrations", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "create-hebbs-module-agent-"));
+    try {
+      const result = await scaffold({ id: "concierge", targetDir: dir, template: "agent-only" });
+      expect(result.template).toBe("agent-only");
+      const src = await readFile(join(dir, "src", "module.ts"), "utf8");
+      expect(src).toMatch(/agents:\s*\[/);
+      expect(src).not.toMatch(/tools:\s*\[/);
+      expect(src).not.toMatch(/schema:\s*\[/);
+      // Skips the migrations dir + file for non-schema templates.
+      expect(existsSync(join(dir, "src", "migrations"))).toBe(false);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("--template connector-consumer wires @boringos/connector-google + email-send capability", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "create-hebbs-module-conn-"));
+    try {
+      const result = await scaffold({
+        id: "inbox-watcher",
+        targetDir: dir,
+        template: "connector-consumer",
+      });
+      expect(result.template).toBe("connector-consumer");
+      const src = await readFile(join(dir, "src", "module.ts"), "utf8");
+      const pkg = JSON.parse(
+        await readFile(join(dir, "package.json"), "utf8"),
+      ) as { dependencies: Record<string, string> };
+      const manifest = JSON.parse(
+        await readFile(join(dir, "module.json"), "utf8"),
+      ) as { dependsOn?: Array<{ capability: string }> };
+      expect(src).toContain('import { GmailClient } from "@boringos/connector-google"');
+      expect(src).toContain('deps.getConnectorToken?.("google"');
+      expect(pkg.dependencies["@boringos/connector-google"]).toBeTruthy();
+      expect(manifest.dependsOn).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ capability: "email-send" }),
+        ]),
+      );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("--template <unknown> throws before touching disk", async () => {
+    await expect(
+      scaffold({
+        id: "demo",
+        targetDir: "/tmp/never-touched-2",
+        // @ts-expect-error — testing runtime guard
+        template: "fancy",
+      }),
+    ).rejects.toThrow(/unknown template/);
   });
 
   it("generates a module.json that parses against the SDK schema", async () => {

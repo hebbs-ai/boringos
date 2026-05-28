@@ -6,7 +6,11 @@
 // `pnpm create hebbs-module <id>` (npm convention).
 
 import { resolve } from "node:path";
-import { scaffold } from "./scaffold.js";
+import {
+  scaffold,
+  TEMPLATES,
+  type TemplateName,
+} from "./scaffold.js";
 
 function printHelp(): void {
   process.stdout.write(
@@ -22,6 +26,8 @@ function printHelp(): void {
       "  [target-dir]    directory to scaffold into (default: <id>)",
       "",
       "Options:",
+      "  --template <name>       one of: " + TEMPLATES.join(", "),
+      "                          (default: default — one-of-each surface)",
       "  --name <name>           display name (default: capitalized <id>)",
       "  --description <text>    one-line description",
       "  --min-framework <ver>   minimum framework semver (default: 0.1.0)",
@@ -43,10 +49,13 @@ async function main(): Promise<number> {
   let displayName: string | undefined;
   let description: string | undefined;
   let minFrameworkVersion: string | undefined;
+  let template: TemplateName | undefined;
 
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === "--name") {
+    if (a === "--template") {
+      template = argv[++i] as TemplateName;
+    } else if (a === "--name") {
       displayName = argv[++i];
     } else if (a === "--description") {
       description = argv[++i];
@@ -75,12 +84,13 @@ async function main(): Promise<number> {
       displayName,
       description,
       minFrameworkVersion,
+      template,
     });
     const rel = resolve(result.targetDir);
     process.stdout.write(
       [
         ``,
-        `✓ scaffolded ${result.id} in ${rel}`,
+        `✓ scaffolded ${result.id} (${result.template}) in ${rel}`,
         ``,
         `  files:`,
         ...result.files.map((f) => `    ${f}`),

@@ -15,8 +15,13 @@ call. The framework wires the rest.
 ## What you need
 
 - TypeScript / Node 22+
-- `pnpm install` at the repo root
-- Be on the framework's main branch
+- A project with `@boringos/module-sdk` installed from npm. **No framework checkout required.**
+  ```bash
+  pnpm add @boringos/module-sdk
+  # plus — only if your module consumes a connector:
+  pnpm add @boringos/connector-google   # or @boringos/connector-slack, etc.
+  ```
+- A host runtime to load your module: either your own minimal `BoringOS` host (the example below) or a deployed Shell that accepts `.hebbsmod` uploads.
 
 ---
 

@@ -552,7 +552,7 @@ export interface Module {
   /**
    * Advisory declaration of which connectors and services this module uses.
    * Used by the host for pre-install UI display (e.g., "this module uses Gmail and Calendar").
-   * Runtime checkScopes is authoritative — this field does NOT gate access.
+   * Runtime checkScopes is authoritative; this field does NOT gate access.
    */
   connectors?: Record<string, {
     services: ServiceDefinition[];

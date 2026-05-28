@@ -1,0 +1,11 @@
+{
+  "id": "hello",
+  "version": "0.1.0",
+  "kind": "module",
+  "name": "Hello",
+  "description": "Minimum-viable module for the MDK T4.3 smoke test — one tool, no schema.",
+  "entry": "./index.mjs",
+  "minFrameworkVersion": "0.1.0",
+  "publisher": { "id": "hebbs", "name": "Hebbs" },
+  "license": "AGPL-3.0-or-later"
+}

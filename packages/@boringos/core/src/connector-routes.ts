@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// Connection routes — OAuth dance + tenant-connection listing.
+// Connection routes: OAuth dance + tenant-connection listing.
 //
 // Legacy connector routes mounted: OAuth flow, webhook receivers, action invocation,
 // connector definition listing. The legacy framework is gone; this
 // file now mounts ONLY:
 //
-//   - GET  /oauth/:provider/authorize — start the OAuth dance (delegates to AuthManager)
-//   - GET  /oauth/:provider/callback  — provider callback (delegates to AuthManager)
-//   - GET  /connectors                — list providers + per-tenant
+//   - GET  /oauth/:provider/authorize : start the OAuth dance (delegates to AuthManager)
+//   - GET  /oauth/:provider/callback  : provider callback (delegates to AuthManager)
+//   - GET  /connectors                : list providers + per-tenant
 //                                       connection state (for the shell)
-//   - POST /disconnect/:kind          — admin removes credentials
+//   - POST /disconnect/:kind          : admin removes credentials
 //
 // The authorize/callback handlers now delegate to AuthManager (Task 2.5).
 // The listing/disconnect/sync routes still read from the legacy `connectors`
@@ -171,7 +171,7 @@ export function createConnectorRoutes(
   // ── Connection listing ────────────────────────────────────
   //
   // Mounted at both `/status` (Connectors screen) and `/connectors`
-  // (ui/client hooks) — same handler, different historical names.
+  // (ui/client hooks). Same handler, different historical names.
 
   const listingHandler = async (c: Context) => {
     // Browser flow: resolve tenant from session token.
@@ -241,7 +241,7 @@ export function createConnectorRoutes(
   // WITHOUT tearing down the connection. Flips
   // `config.gmail.forwardSyncEnabled`; the ticker
   // (inbox-gmail-forward-sync.ts) skips connectors where it is false.
-  // Reversible and non-destructive, so — unlike disconnect — it is
+  // Reversible and non-destructive, so (unlike disconnect) it is
   // not admin-gated; any tenant member can pause their own sync.
 
   app.post("/:kind/sync", async (c) => {

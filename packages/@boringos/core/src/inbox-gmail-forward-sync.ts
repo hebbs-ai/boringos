@@ -25,7 +25,7 @@
 import { sql, eq, and } from "drizzle-orm";
 import type { Db } from "@boringos/db";
 import { connectorAccounts } from "@boringos/db";
-import { GmailClientV2 as GmailClient, type EmailHeaders } from "@boringos/connector-google";
+import { GmailClient, type EmailHeaders } from "@boringos/connector-google";
 import type { AuthManager } from "./auth-manager.js";
 import type { EventBus } from "./event-bus.js";
 import {

@@ -12,6 +12,3 @@ export type { SlackMessage } from "./services/messaging/index.js";
 export type { Channel } from "./services/channels/index.js";
 
 export { fetchSlack, resolveToken, type TokenSource } from "./helpers.js";
-
-// Deprecated. Removed in Phase 2 (Task 2.9).
-export { SlackClient } from "./client.js";

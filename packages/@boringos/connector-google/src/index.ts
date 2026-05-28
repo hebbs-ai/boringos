@@ -9,9 +9,9 @@ export { gmailService, calendarService, contactsService, driveService } from "./
 // Scope constants
 export { GMAIL_SCOPES, CALENDAR_SCOPES, CONTACTS_SCOPES, DRIVE_SCOPES, PROFILE_SCOPES } from "./scopes.js";
 
-// Typed clients (v2)
-export { GmailClient as GmailClientV2 } from "./services/gmail/index.js";
-export { CalendarClient as CalendarClientV2 } from "./services/calendar/index.js";
+// Typed clients (canonical names; formerly exported as GmailClientV2 / CalendarClientV2)
+export { GmailClient } from "./services/gmail/index.js";
+export { CalendarClient } from "./services/calendar/index.js";
 export { PeopleClient } from "./services/contacts/index.js";
 export { DriveClient } from "./services/drive/index.js";
 
@@ -24,10 +24,6 @@ export type { DriveFile } from "./services/drive/index.js";
 // Helpers
 export { fetchWithAuth, resolveToken, type TokenSource } from "./helpers.js";
 
-// Deprecated (kept for Phase 1 backward compatibility; removed in Phase 2 Task 2.9)
-export {
-  GmailClient,        // legacy executeAction-based client
-  buildOutgoingMime,
-  encodeQuotedPrintable,
-} from "./gmail-client.js";
-export { CalendarClient } from "./calendar-client.js";
+// MIME helpers (used by the typed GmailClient internally; re-exported for
+// consumers that build raw MIME outside the client).
+export { buildOutgoingMime, encodeQuotedPrintable } from "./gmail-client.js";

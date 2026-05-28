@@ -25,10 +25,6 @@ import { Hono, type Context } from "hono";
 import { eq, and, sql } from "drizzle-orm";
 import type { Db } from "@boringos/db";
 import { connectors } from "@boringos/db";
-import {
-  OAUTH_PROVIDERS,
-  type OAuthConfig,
-} from "./oauth.js";
 import type { AuthManager } from "./auth-manager.js";
 import type { EventBus } from "./event-bus.js";
 
@@ -41,7 +37,7 @@ interface ProviderEntry {
   kind: string;
   name: string;
   description: string;
-  oauth: OAuthConfig;
+  scopes: string[];
 }
 
 const PROVIDER_DISPLAY: Record<string, { name: string; description: string }> = {
@@ -49,12 +45,13 @@ const PROVIDER_DISPLAY: Record<string, { name: string; description: string }> = 
   slack: { name: "Slack", description: "Channels, threads, reactions" },
 };
 
-function listProviders(): ProviderEntry[] {
-  return Object.entries(OAUTH_PROVIDERS).map(([kind, oauth]) => ({
-    kind,
-    name: PROVIDER_DISPLAY[kind]?.name ?? kind,
-    description: PROVIDER_DISPLAY[kind]?.description ?? "",
-    oauth,
+function listProviders(authManager?: AuthManager): ProviderEntry[] {
+  const defs = authManager?.listConnectors() ?? [];
+  return defs.map((def) => ({
+    kind: def.provider,
+    name: PROVIDER_DISPLAY[def.provider]?.name ?? def.displayName,
+    description: PROVIDER_DISPLAY[def.provider]?.description ?? "",
+    scopes: def.services.flatMap((s) => s.scopes.map((sc) => sc.scope)),
   }));
 }
 
@@ -83,7 +80,7 @@ export function createConnectorRoutes(
   _eventBus: EventBus,
   // jwtSecret is kept on the signature for backward compatibility;
   // the OAuth dance now delegates to AuthManager which carries its
-  // own state secret. Will be removed alongside oauth.ts in Task 2.10.
+  // own state secret. Kept until Task 2.11 restructures this signature.
   _jwtSecret: string,
   baseUrl: string,
   opts: ConnectorRoutesOptions = {},
@@ -194,14 +191,14 @@ export function createConnectorRoutes(
     }
 
     const connected = await db.select().from(connectors).where(eq(connectors.tenantId, tenantId));
-    const available = listProviders().map((p) => {
+    const available = listProviders(authManager).map((p) => {
       const match = connected.find((c) => c.kind === p.kind);
       return {
         kind: p.kind,
         name: p.name,
         description: p.description,
         hasOAuth: true,
-        oauthScopes: p.oauth.scopes,
+        oauthScopes: p.scopes,
         connected: !!match,
         status: match?.status ?? "not_connected",
         lastSyncAt: match?.lastSyncAt,

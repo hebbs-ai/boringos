@@ -24,7 +24,7 @@
 import { sql, eq, and } from "drizzle-orm";
 import type { Db } from "@boringos/db";
 import { connectorAccounts } from "@boringos/db";
-import { GmailClientV2 as GmailClient } from "@boringos/connector-google";
+import { GmailClient } from "@boringos/connector-google";
 import type { AuthManager } from "./auth-manager.js";
 
 const PROVIDER_GOOGLE = "google";

@@ -1,5 +1,7 @@
 ---
-"@boringos/connector-google": minor
+"@boringos/connector-google": major
 ---
 
-Add ConnectorDefinition export (googleConnector), typed clients (GmailClientV2, CalendarClientV2, PeopleClient, DriveClient), scope constants, service definitions, TypeScript types for API objects, and updated skill files. Existing GmailClient, CalendarClient, buildOutgoingMime, encodeQuotedPrintable kept as deprecated re-exports for the deprecation window. They will be removed in Phase 2.
+BREAKING: removed legacy `executeAction`-based `GmailClient` and `CalendarClient` classes. Use typed methods (`listMessages`, `sendEmail`, `listEvents`, `createEvent`, etc.) instead. The exports now point to what was previously `GmailClientV2`/`CalendarClientV2`.
+
+Major version bump reflects the API break. Token-provider constructor and typed methods are documented in the package README and skill files.

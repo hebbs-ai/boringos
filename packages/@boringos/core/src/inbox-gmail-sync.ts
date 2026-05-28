@@ -19,7 +19,7 @@
 import { eq, and } from "drizzle-orm";
 import type { Db } from "@boringos/db";
 import { connectorAccounts, inboxItems } from "@boringos/db";
-import { GmailClientV2 as GmailClient } from "@boringos/connector-google";
+import { GmailClient } from "@boringos/connector-google";
 import type { AuthManager } from "./auth-manager.js";
 
 const SNOOZED_LABEL_NAME = "Hebbs/Snoozed";

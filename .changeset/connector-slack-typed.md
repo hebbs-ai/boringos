@@ -1,5 +1,5 @@
 ---
-"@boringos/connector-slack": minor
+"@boringos/connector-slack": major
 ---
 
-Add ConnectorDefinition (slackConnector), typed clients (MessagingClient, ChannelsClient, ReactionsClient), scope constants, service definitions, and skill files. Legacy SlackClient kept as deprecated re-export. Removed in Phase 2.
+BREAKING: removed legacy `executeAction`-based `SlackClient` class. Use typed clients (`MessagingClient`, `ChannelsClient`, `ReactionsClient`) instead.

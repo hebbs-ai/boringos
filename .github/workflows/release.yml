@@ -1,0 +1,132 @@
+# Release — direct-to-main changesets publish.
+#
+# Behaviour:
+#   - On every push to main, the workflow runs.
+#   - If there are unconsumed changesets (.changeset/*.md files other
+#     than README.md), it bumps package versions, regenerates CHANGELOGs,
+#     builds, publishes the affected packages to npm, commits the
+#     bumps back to main, and pushes the new tags.
+#   - If there are no changesets, the workflow no-ops cleanly.
+#   - If NPM_TOKEN is not configured as a repo secret, the publish
+#     step is skipped with a warning — the workflow still succeeds.
+#     This keeps the initial deploy of the workflow itself green.
+#
+# Setup required once:
+#   1. Generate an npm Granular Access Token with publish rights on the
+#      `@boringos` scope (npm.com → Access Tokens → Granular).
+#   2. Add it as a repo secret named `NPM_TOKEN`
+#      (Settings → Secrets and variables → Actions → New repository secret).
+#   3. That's it — next push with a changeset publishes automatically.
+#
+# No PRs: per Parag's 2026-05-28 direct-to-main convention. The
+# upstream `changesets/action` opens a "Version Packages" PR by
+# default; this workflow skips that step and commits bumps inline.
+
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Detect pending changesets
+        id: detect
+        shell: bash
+        run: |
+          set -e
+          shopt -s nullglob
+          all=(.changeset/*.md)
+          changesets=()
+          for f in "${all[@]}"; do
+            [ "$(basename "$f")" = "README.md" ] && continue
+            changesets+=("$f")
+          done
+          if [ ${#changesets[@]} -gt 0 ]; then
+            echo "has_changesets=true" >> "$GITHUB_OUTPUT"
+            printf 'pending changesets:\n'
+            printf '  %s\n' "${changesets[@]}"
+          else
+            echo "has_changesets=false" >> "$GITHUB_OUTPUT"
+            echo "no changesets to consume — workflow exits cleanly"
+          fi
+
+      - name: Check NPM_TOKEN availability
+        id: token
+        if: steps.detect.outputs.has_changesets == 'true'
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        shell: bash
+        run: |
+          if [ -z "$NPM_TOKEN" ]; then
+            echo "::warning::NPM_TOKEN secret is not configured. Skipping publish — set the secret in repo settings to enable automated releases."
+            echo "have_token=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "have_token=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Version + publish + commit bumps
+        if: steps.detect.outputs.has_changesets == 'true' && steps.token.outputs.have_token == 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -e
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Consume changesets: bump versions, regenerate CHANGELOGs,
+          # delete the consumed .md files.
+          pnpm changeset version
+
+          # Rebuild so each package's dist/ matches the new version.
+          pnpm -r build
+
+          # Commit the bumps (no-op if changeset version made no edits).
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(release): consume changesets"
+          fi
+
+          # Publish to npm. changeset publish skips packages whose
+          # version is already present on the registry.
+          pnpm changeset publish
+
+          # Push the bump commit + any new tags back to main. The next
+          # workflow firing (triggered by this push) will find no
+          # changesets and exit cleanly.
+          git push --follow-tags origin main

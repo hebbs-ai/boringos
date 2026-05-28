@@ -8,6 +8,7 @@
 import { sql } from "drizzle-orm";
 import type { Db } from "@boringos/db";
 import { syncSnoozeWake } from "./inbox-gmail-sync.js";
+import type { AuthManager } from "./auth-manager.js";
 
 export interface InboxSnoozeTicker {
   start(): void;
@@ -20,6 +21,7 @@ const DEFAULT_INTERVAL_MS = 30_000;
 
 export function createInboxSnoozeTicker(
   db: Db,
+  authManager?: AuthManager,
   options: { intervalMs?: number } = {},
 ): InboxSnoozeTicker {
   const intervalMs = options.intervalMs ?? DEFAULT_INTERVAL_MS;
@@ -44,7 +46,7 @@ export function createInboxSnoozeTicker(
     // each item — fire-and-forget. Failures are logged inside the
     // helper; the local DB flip is the source of truth.
     for (const row of rows) {
-      void syncSnoozeWake({ db }, row.tenant_id, row.id);
+      if (authManager) void syncSnoozeWake({ db, authManager }, row.tenant_id, row.id);
     }
     return rows.length;
   }

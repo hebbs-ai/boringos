@@ -991,7 +991,7 @@ export class BoringOS {
     // per-block events to the canvas.
     (factoryDeps as { realtimeBus: unknown }).realtimeBus = realtimeBus;
 
-    const adminApp = createAdminRoutes(dbConn.db, agentEngine, adminKeyValue, realtimeBus, toolRegistry, runtimes, eventBus, drive, settingRegistry);
+    const adminApp = createAdminRoutes(dbConn.db, agentEngine, adminKeyValue, realtimeBus, toolRegistry, runtimes, eventBus, drive, settingRegistry, authManager);
     app.route("/api/admin", adminApp);
 
     const sseApp = createSSERoutes(realtimeBus, adminKeyValue, dbConn.db);
@@ -1383,7 +1383,7 @@ export class BoringOS {
     // Inbox snooze ticker: flips snoozed rows back to unread when their
     // snooze_until elapses. Cheap (one indexed UPDATE every 30s) so
     // wired unconditionally.
-    const snoozeTicker = createInboxSnoozeTicker(dbConn.db);
+    const snoozeTicker = createInboxSnoozeTicker(dbConn.db, authManager);
     snoozeTicker.start();
 
     // Forward sync — ingest new Gmail messages into inbox_items every
@@ -1508,7 +1508,7 @@ export class BoringOS {
     // path; the automated-mail skip optimization lives in the
     // workflow's `check-not-automated` condition block (see
     // `buildTriageWorkflowBlocks` in modules/inbox-triage.ts).
-    const forwardSyncTicker = createInboxGmailForwardSyncTicker(dbConn.db, {
+    const forwardSyncTicker = createInboxGmailForwardSyncTicker(dbConn.db, authManager, {
       eventBus,
     });
     forwardSyncTicker.start();
@@ -1538,7 +1538,7 @@ export class BoringOS {
     // every 2 minutes. Skipped silently if no Gmail connector is wired
     // (the ticker iterates connected Gmail tenants; an empty set is a
     // no-op).
-    const reverseSyncTicker = createInboxGmailReverseSyncTicker(dbConn.db);
+    const reverseSyncTicker = createInboxGmailReverseSyncTicker(dbConn.db, authManager);
     reverseSyncTicker.start();
 
     // 13. Run afterStart hooks

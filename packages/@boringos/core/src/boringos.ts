@@ -28,7 +28,6 @@ import { createEventBus } from "./event-bus.js";
 import type {
   BoringOSConfig,
   AppContext,
-  ConnectorDefinition,
   PersonaBundle,
   PluginManifest,
   LifecycleHook,
@@ -74,14 +73,15 @@ import { createPluginWebhookRoutes, createPluginAdminRoutes } from "./plugin-rou
 import { githubPlugin } from "./plugins/github.js";
 import { AuthManager } from "./auth-manager.js";
 import { tenantContext, requireTenantId } from "./tenant-context.js";
-import { googleConnector } from "@boringos/connector-google";
-import { slackConnector } from "@boringos/connector-slack";
+import { discoverConnectors } from "./connector-discovery.js";
+import type { ConnectorDefinition } from "@boringos/module-sdk";
 import { randomBytes } from "node:crypto";
 
 export class BoringOS {
   private config: BoringOSConfig;
   private memoryProvider: MemoryProvider = nullMemory;
   private extraRuntimes: RuntimeModule[] = [];
+  private extraConnectors: ConnectorDefinition[] = [];
   private contextProviders: ContextProvider[] = [];
   private personas: Map<string, PersonaBundle> = new Map();
   private plugins: PluginManifest[] = [];
@@ -149,6 +149,18 @@ export class BoringOS {
 
   runtime(module: RuntimeModule): this {
     this.extraRuntimes.push(module);
+    return this;
+  }
+
+  /**
+   * Register an explicit ConnectorDefinition with the auth manager.
+   *
+   * Use this for connectors that are NOT under the @boringos scope (so
+   * auto-discovery cannot find them), or for vendored copies that should
+   * override a discovered one with the same provider name.
+   */
+  connector(definition: ConnectorDefinition): this {
+    this.extraConnectors.push(definition);
     return this;
   }
 
@@ -506,8 +518,27 @@ export class BoringOS {
       authManagerSecret,
       (provider: string) => `${publicBase}/api/connectors/oauth/${provider}/callback`,
     );
-    authManager.registerConnector(googleConnector);
-    authManager.registerConnector(slackConnector);
+    // Auto-discovery: scan node_modules for @boringos/connector-* packages
+    // and register every ConnectorDefinition we find. This makes connectors
+    // truly install-via-npm: `pnpm add @boringos/connector-google` and the
+    // provider shows up at next boot.
+    const discovered = await discoverConnectors();
+    for (const { packageName, provider, definition } of discovered) {
+      console.log(`[connector-discovery] registered ${provider} from ${packageName}`);
+      authManager.registerConnector(definition);
+    }
+
+    // Explicit connectors passed via the builder hook (.connector()) take
+    // precedence and are useful for custom (non-@boringos-scoped) connectors
+    // or for overriding a discovered one with a vendored copy.
+    for (const def of this.extraConnectors) {
+      // Skip if already registered by discovery (explicit second-wins would
+      // require unregister, which we do not support).
+      if (!authManager.getConnector(def.provider)) {
+        console.log(`[connector] registered ${def.provider} (explicit)`);
+        authManager.registerConnector(def);
+      }
+    }
 
     // ModuleFactory functions are resolved here, after the DB +
     // drive are available (memory provider, agent + workflow

@@ -4,7 +4,6 @@ export type {
   DriveAppConfig,
   LogConfig,
   AppContext,
-  ConnectorDefinition,
   SkillDefinition,
   SkillSource,
   PersonaBundle,
@@ -13,6 +12,10 @@ export type {
   StartedServer,
   TestInstance,
 } from "./types.js";
+// The canonical ConnectorDefinition lives in @boringos/module-sdk now.
+// Re-export it here for convenience so consumers of @boringos/core can
+// continue importing ConnectorDefinition from the same module.
+export type { ConnectorDefinition } from "@boringos/module-sdk";
 
 export { BoringOS } from "./boringos.js";
 

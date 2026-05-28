@@ -144,7 +144,9 @@ export const createGoogleModule: ModuleFactory = (deps) => ({
         try {
           const cal = new CalendarClient(conn.getToken);
           const events = await cal.listEvents(input);
-          return { ok: true as const, result: events };
+          // Wrapped shape: Shell expects result.data.events for backward compat
+          // with the legacy executeAction return.
+          return { ok: true as const, result: { events } };
         } catch (e) {
           return upstreamFail(e);
         }

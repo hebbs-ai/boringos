@@ -78,11 +78,9 @@ export interface AppContext {
 
 // ── Component registration types ─────────────────────────────────────────────
 
-export interface ConnectorDefinition extends SkillProvider {
-  name: string;
-  type: string;
-  setup?(ctx: AppContext): Promise<void>;
-}
+// ConnectorDefinition removed from core/types.ts. The canonical type lives
+// in @boringos/module-sdk and is re-exported from core/index.ts. The legacy
+// shape ({ name, type, setup }) was unused after the Path B pivot.
 
 export interface SkillDefinition {
   key: string;

@@ -59,6 +59,16 @@ export function createToolCatalogProvider(
           "be JSON matching the tool's input schema; the response is " +
           "`{ \"ok\": true, \"result\": ... }` or `{ \"ok\": false, \"error\": { ... } }`.",
         "",
+        "**Auth check — DO NOT introspect env vars.** Both " +
+          "`$BORINGOS_CALLBACK_URL` and `$BORINGOS_CALLBACK_TOKEN` are " +
+          "always set when you wake. Use them directly via shell " +
+          "interpolation inside `curl`. Do **not** run `printenv` or " +
+          "`env | grep TOKEN` to \"verify\" — some runtimes (Pi, etc.) " +
+          "deliberately redact secrets from those commands and report " +
+          "them as empty, which is misleading. The token IS available " +
+          "to shell interpolation. If a tool call returns HTTP 401, " +
+          "THEN escalate; otherwise just attempt the call.",
+        "",
       ];
 
       // Group by module for readability.

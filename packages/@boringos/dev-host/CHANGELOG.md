@@ -1,5 +1,13 @@
 # @boringos/dev-host
 
+## 0.5.4
+
+### Patch Changes
+
+- Updated dependencies [8594055]
+  - @boringos/agent@0.4.0
+  - @boringos/core@0.4.1
+
 ## 0.5.3
 
 ### Patch Changes

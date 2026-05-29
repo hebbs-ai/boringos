@@ -1,5 +1,11 @@
 # @boringos/hebbs-cli
 
+## 0.8.1
+
+### Patch Changes
+
+- @boringos/dev-host@0.5.4
+
 ## 0.8.0
 
 ### Minor Changes

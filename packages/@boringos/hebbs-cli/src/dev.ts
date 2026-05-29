@@ -32,6 +32,12 @@ export interface DevOptions {
   onReload?: (r: ReloadResult) => void;
   /** Called when a reload throws. Default: rethrow on next call. */
   onReloadError?: (err: unknown) => void;
+  /**
+   * Use an external Postgres (URL or `DATABASE_URL`-style string)
+   * instead of the embedded default. Pairs with the
+   * `recipes/docker/docker-compose.yml` recipe. MDK T6.3.
+   */
+  postgresUrl?: string;
 }
 
 export interface DevHandle {
@@ -48,7 +54,10 @@ export interface DevHandle {
  * programmatic callers (e.g. tests) call it explicitly.
  */
 export async function startDev(opts: DevOptions): Promise<DevHandle> {
-  const host = await createDevHost({ modulePath: opts.modulePath });
+  const host = await createDevHost({
+    modulePath: opts.modulePath,
+    databaseUrl: opts.postgresUrl,
+  });
 
   if (opts.smokeToolName) {
     await host.dispatch(opts.smokeToolName, opts.smokeToolInputs ?? {});

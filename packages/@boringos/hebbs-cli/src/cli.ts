@@ -63,6 +63,7 @@ function printHelp(): void {
       "  --inputs <json>    JSON inputs for --tool (default: {})",
       "  --json             emit a machine-readable JSON result (test only)",
       "  --no-watch         dev only: disable file-watcher hot reload",
+      "  --postgres-url <u> use an external Postgres (e.g. recipes/docker/) instead of embedded",
       "  --help, -h         print this message",
       "",
     ].join("\n"),
@@ -106,7 +107,19 @@ async function main(): Promise<number> {
 
   if (args.command === "dev") {
     const noWatch = args.flags["no-watch"] === true;
-    return runDev(modulePath, smokeToolName, smokeToolInputs, !noWatch);
+    const postgresUrl =
+      typeof args.flags["postgres-url"] === "string"
+        ? args.flags["postgres-url"]
+        : process.env.DATABASE_URL && process.env.DATABASE_URL.length > 0
+          ? process.env.DATABASE_URL
+          : undefined;
+    return runDev(
+      modulePath,
+      smokeToolName,
+      smokeToolInputs,
+      !noWatch,
+      postgresUrl,
+    );
   }
 
   const wantJson = args.flags.json === true;
@@ -150,6 +163,7 @@ async function runDev(
   smokeToolName?: string,
   smokeToolInputs?: unknown,
   watch: boolean = true,
+  postgresUrl?: string,
 ): Promise<number> {
   try {
     const handle = await startDev({
@@ -157,6 +171,7 @@ async function runDev(
       smokeToolName,
       smokeToolInputs,
       watch: watch ? "auto" : false,
+      postgresUrl,
       onReload: (r) => {
         process.stdout.write(
           `  ↻ reloaded ${r.moduleId}@${r.moduleVersion} ` +
@@ -175,6 +190,7 @@ async function runDev(
         `  tenant id:  ${handle.host.tenantId}`,
         `  jwt:        ${handle.host.callbackToken.slice(0, 24)}…  (Authorization: Bearer)`,
         `  watch:      ${handle.watching ? "on (edit files to reload)" : "off"}`,
+        `  postgres:   ${postgresUrl ? "external (--postgres-url / $DATABASE_URL)" : "embedded"}`,
         ``,
         `  Try a tool:`,
         `    curl -X POST '${handle.host.url}/api/tools/${handle.host.moduleId}.greet' \\`,

@@ -53,8 +53,19 @@ export interface DevHostOptions {
   modulePath: string;
   /** Required for AuthManager (post-#60). Random per-call by default. */
   encryptionKey?: string;
-  /** Embedded Postgres port. Random per-call by default. */
+  /** Embedded Postgres port. Random per-call by default. Ignored when
+   *  `databaseUrl` is set. */
   pgPort?: number;
+  /**
+   * Point the dev-host at an external Postgres (e.g. the Docker
+   * Compose recipe in `recipes/docker/`). When set, the dev-host
+   * skips spinning up the embedded Postgres entirely — handy for
+   * persistence across restarts or when SysV shm limits are tight.
+   *
+   * Migrations still run automatically against the external DB on
+   * boot. MDK T6.3.
+   */
+  databaseUrl?: string;
   /** Auth JWT secret. Random per-call by default. */
   jwtSecret?: string;
   /** Override the framework root used to host the bundle extract.
@@ -151,8 +162,14 @@ export async function createDevHost(opts: DevHostOptions): Promise<DevHost> {
   }
 
   // ── 1. Boot BoringOS with built-ins ──────────────────────────
+  // T6.3: opt in to external Postgres (e.g. recipes/docker/) via
+  // `databaseUrl`; otherwise the embedded Postgres path stays the
+  // default for fast inner-loop iteration.
+  const databaseConfig = opts.databaseUrl
+    ? { url: opts.databaseUrl }
+    : { embedded: true as const, port: pgPort, dataDir: join(dataDir, "pg") };
   const app = new BoringOS({
-    database: { embedded: true, port: pgPort, dataDir: join(dataDir, "pg") },
+    database: databaseConfig,
     drive: { root: join(dataDir, "drive") },
     auth: { secret: jwtSecret },
     queue: { concurrency: 1 },

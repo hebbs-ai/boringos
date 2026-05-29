@@ -1,0 +1,45 @@
+# Hebbs MDK — local dev Postgres recipe.
+#
+# This is the `wp-env`-equivalent for module authors who don't want to
+# rely on the framework's embedded Postgres (e.g. CI-like local runs,
+# or when multiple modules need to share state across `hebbs dev`
+# restarts). Bring your own Node 22+; the framework + module code
+# still runs on the host. A fully-containerised `hebbs dev --docker`
+# (host included) is tracked separately and will land when a published
+# `@boringos/shell` image is available.
+#
+# Usage:
+#   cd recipes/docker
+#   docker compose up -d
+#   # in your module package:
+#   hebbs dev . --postgres-url postgres://boringos:boringos@127.0.0.1:5439/boringos
+#   # or set DATABASE_URL=postgres://boringos:boringos@127.0.0.1:5439/boringos
+#   docker compose down               # stop, keep data
+#   docker compose down -v            # stop and wipe the volume
+#
+# MDK T6.3.
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: hebbs-dev-pg
+    environment:
+      POSTGRES_USER: boringos
+      POSTGRES_PASSWORD: boringos
+      POSTGRES_DB: boringos
+      PGPORT: 5439
+    ports:
+      # Bind to localhost only — this Postgres is for dev, not for
+      # exposing on a LAN.
+      - "127.0.0.1:5439:5439"
+    volumes:
+      - hebbs-dev-pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U boringos -d boringos -p 5439" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  hebbs-dev-pgdata:

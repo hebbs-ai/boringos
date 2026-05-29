@@ -307,6 +307,18 @@ export function createInstallManager(deps: InstallManagerDeps): InstallManager {
       // Roll back schema regardless of hook failure — leftover
       // tables are worse than a missing hook side-effect.
       await rollbackMigrations(mod, tenantId);
+      // MDK T8.3 — clear __seed_meta rows so a subsequent re-install
+      // starts fresh. Without this, the next runSeed call sees stale
+      // meta with a dangling target_id and skips instead of
+      // re-creating the rows the uninstall just cleared.
+      await deps.db
+        .delete(seedMetaTable)
+        .where(
+          and(
+            eq(seedMetaTable.tenantId, tenantId),
+            eq(seedMetaTable.moduleId, moduleId),
+          ),
+        );
       await deps.db
         .delete(moduleInstalls)
         .where(
@@ -490,7 +502,6 @@ async function runSeed(
     });
     const meta = await loadSeedMeta(db, tenantId, mod.id, "agent", seedId);
     if (meta) {
-      // Already seeded once. Re-load the target row to compare.
       const cur = await db
         .select({
           id: agentsTable.id,
@@ -501,44 +512,43 @@ async function runSeed(
         .from(agentsTable)
         .where(eq(agentsTable.id, meta.targetId))
         .limit(1);
-      if (!cur[0]) {
-        // Row was deleted by the tenant. Don't resurrect — leave the
-        // meta in place so a future explicit re-install can decide.
-        agentSeedIds.set(seed.name, meta.targetId);
-        result.agentsSkipped += 1;
+      if (cur[0]) {
+        const currentHash = canonicalHash({
+          name: cur[0].name,
+          role: cur[0].role,
+          instructions: cur[0].instructions ?? null,
+        });
+        if (currentHash === meta.baselineHash && currentHash !== desiredHash) {
+          // Unmodified by tenant, author bumped → safe upgrade.
+          await db
+            .update(agentsTable)
+            .set({
+              name: seed.name,
+              role: seed.persona,
+              instructions: seed.instructions ?? null,
+              updatedAt: new Date(),
+            })
+            .where(eq(agentsTable.id, cur[0].id));
+          await db
+            .update(seedMetaTable)
+            .set({ baselineHash: desiredHash, moduleVersion: mod.version, updatedAt: new Date() })
+            .where(eq(seedMetaTable.id, meta.id));
+          agentSeedIds.set(seed.name, cur[0].id);
+          result.agentsSeeded += 1;
+        } else {
+          // Either tenant edited (currentHash != baselineHash) or
+          // payload unchanged. Skip in both cases.
+          agentSeedIds.set(seed.name, cur[0].id);
+          result.agentsSkipped += 1;
+        }
         continue;
       }
-      const currentHash = canonicalHash({
-        name: cur[0].name,
-        role: cur[0].role,
-        instructions: cur[0].instructions ?? null,
-      });
-      if (currentHash === meta.baselineHash && currentHash !== desiredHash) {
-        // Unmodified by tenant, author bumped → safe upgrade.
-        await db
-          .update(agentsTable)
-          .set({
-            name: seed.name,
-            role: seed.persona,
-            instructions: seed.instructions ?? null,
-            updatedAt: new Date(),
-          })
-          .where(eq(agentsTable.id, cur[0].id));
-        await db
-          .update(seedMetaTable)
-          .set({ baselineHash: desiredHash, moduleVersion: mod.version, updatedAt: new Date() })
-          .where(eq(seedMetaTable.id, meta.id));
-        agentSeedIds.set(seed.name, cur[0].id);
-        result.agentsSeeded += 1;
-      } else {
-        // Either tenant edited (currentHash != baselineHash) or
-        // payload unchanged. Skip in both cases.
-        agentSeedIds.set(seed.name, cur[0].id);
-        result.agentsSkipped += 1;
-      }
-      continue;
+      // Target gone (e.g. CRM-style scrub). Drop stale meta and
+      // fall through to first-time-seed below — fresh row + fresh
+      // meta. MDK T8.3.
+      await db.delete(seedMetaTable).where(eq(seedMetaTable.id, meta.id));
     }
-    // First-time seed.
+    // First-time seed (no meta, or meta orphaned + just cleared).
     const rtRows = await db
       .select({ id: runtimesTable.id })
       .from(runtimesTable)
@@ -589,34 +599,34 @@ async function runSeed(
         .from(workflowsTable)
         .where(eq(workflowsTable.id, meta.targetId))
         .limit(1);
-      if (!cur[0]) {
-        result.workflowsSkipped += 1;
+      if (cur[0]) {
+        const currentHash = canonicalHash({
+          name: cur[0].name,
+          blocks: cur[0].blocks,
+          edges: cur[0].edges,
+        });
+        if (currentHash === meta.baselineHash && currentHash !== desiredHash) {
+          await db
+            .update(workflowsTable)
+            .set({
+              name: seed.name,
+              blocks: seed.blocks as unknown as Record<string, unknown>[],
+              edges: seed.edges as unknown as Record<string, unknown>[],
+              updatedAt: new Date(),
+            })
+            .where(eq(workflowsTable.id, cur[0].id));
+          await db
+            .update(seedMetaTable)
+            .set({ baselineHash: desiredHash, moduleVersion: mod.version, updatedAt: new Date() })
+            .where(eq(seedMetaTable.id, meta.id));
+          result.workflowsSeeded += 1;
+        } else {
+          result.workflowsSkipped += 1;
+        }
         continue;
       }
-      const currentHash = canonicalHash({
-        name: cur[0].name,
-        blocks: cur[0].blocks,
-        edges: cur[0].edges,
-      });
-      if (currentHash === meta.baselineHash && currentHash !== desiredHash) {
-        await db
-          .update(workflowsTable)
-          .set({
-            name: seed.name,
-            blocks: seed.blocks as unknown as Record<string, unknown>[],
-            edges: seed.edges as unknown as Record<string, unknown>[],
-            updatedAt: new Date(),
-          })
-          .where(eq(workflowsTable.id, cur[0].id));
-        await db
-          .update(seedMetaTable)
-          .set({ baselineHash: desiredHash, moduleVersion: mod.version, updatedAt: new Date() })
-          .where(eq(seedMetaTable.id, meta.id));
-        result.workflowsSeeded += 1;
-      } else {
-        result.workflowsSkipped += 1;
-      }
-      continue;
+      // Target gone — fall through to fresh insert. MDK T8.3.
+      await db.delete(seedMetaTable).where(eq(seedMetaTable.id, meta.id));
     }
     const inserted = await db
       .insert(workflowsTable)
@@ -663,38 +673,38 @@ async function runSeed(
         .from(routinesTable)
         .where(eq(routinesTable.id, meta.targetId))
         .limit(1);
-      if (!cur[0]) {
-        result.routinesSkipped += 1;
+      if (cur[0]) {
+        const currentHash = canonicalHash({
+          title: cur[0].title,
+          cron: cur[0].cronExpression,
+          tz: cur[0].timezone ?? "UTC",
+          enabled: cur[0].status !== "paused",
+          concurrency: cur[0].concurrencyPolicy,
+        });
+        if (currentHash === meta.baselineHash && currentHash !== desiredHash) {
+          await db
+            .update(routinesTable)
+            .set({
+              title: seed.title,
+              cronExpression: seed.trigger.expression,
+              timezone: seed.trigger.timezone ?? "UTC",
+              status: seed.enabled === false ? "paused" : "active",
+              concurrencyPolicy: seed.concurrency ?? "skip_if_active",
+              updatedAt: new Date(),
+            })
+            .where(eq(routinesTable.id, cur[0].id));
+          await db
+            .update(seedMetaTable)
+            .set({ baselineHash: desiredHash, moduleVersion: mod.version, updatedAt: new Date() })
+            .where(eq(seedMetaTable.id, meta.id));
+          result.routinesSeeded += 1;
+        } else {
+          result.routinesSkipped += 1;
+        }
         continue;
       }
-      const currentHash = canonicalHash({
-        title: cur[0].title,
-        cron: cur[0].cronExpression,
-        tz: cur[0].timezone ?? "UTC",
-        enabled: cur[0].status !== "paused",
-        concurrency: cur[0].concurrencyPolicy,
-      });
-      if (currentHash === meta.baselineHash && currentHash !== desiredHash) {
-        await db
-          .update(routinesTable)
-          .set({
-            title: seed.title,
-            cronExpression: seed.trigger.expression,
-            timezone: seed.trigger.timezone ?? "UTC",
-            status: seed.enabled === false ? "paused" : "active",
-            concurrencyPolicy: seed.concurrency ?? "skip_if_active",
-            updatedAt: new Date(),
-          })
-          .where(eq(routinesTable.id, cur[0].id));
-        await db
-          .update(seedMetaTable)
-          .set({ baselineHash: desiredHash, moduleVersion: mod.version, updatedAt: new Date() })
-          .where(eq(seedMetaTable.id, meta.id));
-        result.routinesSeeded += 1;
-      } else {
-        result.routinesSkipped += 1;
-      }
-      continue;
+      // Target gone — fall through. MDK T8.3.
+      await db.delete(seedMetaTable).where(eq(seedMetaTable.id, meta.id));
     }
     const inserted = await db
       .insert(routinesTable)

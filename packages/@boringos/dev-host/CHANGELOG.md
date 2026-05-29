@@ -1,5 +1,15 @@
 # @boringos/dev-host
 
+## 0.5.2
+
+### Patch Changes
+
+- Updated dependencies [d1695e0]
+  - @boringos/module-sdk@0.12.0
+  - @boringos/db@0.2.0
+  - @boringos/agent@0.3.0
+  - @boringos/core@0.3.2
+
 ## 0.5.1
 
 ### Patch Changes

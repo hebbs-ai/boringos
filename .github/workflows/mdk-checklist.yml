@@ -1,0 +1,68 @@
+name: MDK Checklist
+
+on:
+  pull_request:
+    paths:
+      - "packages/@boringos/module-sdk/src/**"
+      - "packages/@boringos/dev-host/src/**"
+      - "packages/@boringos/hebbs-cli/src/**"
+
+# MDK T9.2 — every PR that touches a module-author-facing public
+# surface must also (a) ship a Changeset entry, (b) update the
+# author-facing upgrade guide if SDK types changed, and (c) add or
+# update a Vitest test. Without this gate, surface changes slip into
+# the next release without docs or coverage, and module authors hit
+# them as silent breakage.
+
+concurrency:
+  group: mdk-checklist-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checklist:
+    runs-on: ubuntu-latest
+    name: Changeset + upgrade guide + test
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history so we can diff against the base
+
+      - name: Compute changed files vs base
+        id: diff
+        run: |
+          base_ref="origin/${{ github.base_ref }}"
+          git fetch origin "${{ github.base_ref }}" --depth 100
+          changed=$(git diff --name-only "$base_ref"...HEAD)
+          echo "Changed files (vs $base_ref):"
+          echo "$changed"
+          echo "$changed" > /tmp/changed-files.txt
+
+      - name: Require a changeset entry
+        run: |
+          if ! grep -E '^\.changeset/.+\.md$' /tmp/changed-files.txt > /dev/null; then
+            echo "::error::MDK checklist: no .changeset/*.md entry in this PR. Run 'pnpm changeset' and commit the file."
+            exit 1
+          fi
+          echo "✓ Changeset entry present."
+
+      - name: Require an upgrade-guide update when module-sdk types change
+        run: |
+          if grep -E '^packages/@boringos/module-sdk/src/types\.ts$' /tmp/changed-files.txt > /dev/null; then
+            if ! grep -E '^docs/MDK-UPGRADE-GUIDE\.md$' /tmp/changed-files.txt > /dev/null; then
+              echo "::error::MDK checklist: this PR changes module-sdk types but does not update docs/MDK-UPGRADE-GUIDE.md. Add a note for module authors."
+              exit 1
+            fi
+            echo "✓ Upgrade guide updated alongside types.ts."
+          else
+            echo "· module-sdk/src/types.ts unchanged; upgrade guide update not required."
+          fi
+
+      - name: Require an added or updated test
+        run: |
+          # New or modified file under tests/ counts. Either pattern.
+          if ! grep -E '^tests/.+\.test\.ts$' /tmp/changed-files.txt > /dev/null; then
+            echo "::error::MDK checklist: this PR touches @boringos/* public surface but does not add or update a test under tests/. Add or extend a Vitest file."
+            exit 1
+          fi
+          echo "✓ Test added or updated."

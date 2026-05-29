@@ -14,3 +14,12 @@ export {
   type DoctorReport,
   type DoctorFinding,
 } from "./doctor.js";
+export {
+  runCodemod,
+  bundledCodemods,
+  moduleUiToPluginUi,
+  type Codemod,
+  type CodemodContext,
+  type CodemodRunResult,
+  type RunOptions as CodemodRunOptions,
+} from "./codemods/index.js";

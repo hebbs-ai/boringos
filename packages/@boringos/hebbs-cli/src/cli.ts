@@ -10,6 +10,7 @@
 import { runTest } from "./test.js";
 import { startDev } from "./dev.js";
 import { runDoctor } from "./doctor.js";
+import { bundledCodemods, runCodemod } from "./codemods/index.js";
 
 interface ParsedArgs {
   command: string | null;
@@ -55,6 +56,7 @@ function printHelp(): void {
       "  hebbs test   <module> [options]   one-shot smoke (boot, optional dispatch, tear down)",
       "  hebbs dev    <module> [options]   boot and stay alive (Ctrl+C to stop) — MDK T6.1",
       "  hebbs doctor <module> [options]   health-check the module (SDK compat, deprecated APIs) — MDK T7.4",
+      "  hebbs codemod <module> [options]  apply a bundled codemod — MDK T7.5",
       "",
       "Arguments:",
       "  <module>           path to a .hebbsmod archive OR a built module package",
@@ -66,6 +68,8 @@ function printHelp(): void {
       "  --json             emit a machine-readable JSON result (test only)",
       "  --no-watch         dev only: disable file-watcher hot reload",
       "  --postgres-url <u> use an external Postgres (e.g. recipes/docker/) instead of embedded",
+      "  --codemod <id>     codemod only: which codemod to apply (default: list available)",
+      "  --write            codemod only: write changes back (default: dry-run)",
       "  --help, -h         print this message",
       "",
     ].join("\n"),
@@ -78,7 +82,12 @@ async function main(): Promise<number> {
     printHelp();
     return 0;
   }
-  if (args.command !== "test" && args.command !== "dev" && args.command !== "doctor") {
+  if (
+    args.command !== "test" &&
+    args.command !== "dev" &&
+    args.command !== "doctor" &&
+    args.command !== "codemod"
+  ) {
     process.stderr.write(
       `hebbs: unknown command "${args.command ?? "(none)"}"\n\n`,
     );
@@ -105,6 +114,39 @@ async function main(): Promise<number> {
       );
       return 2;
     }
+  }
+
+  if (args.command === "codemod") {
+    const codemodId = typeof args.flags.codemod === "string" ? args.flags.codemod : null;
+    if (!codemodId) {
+      process.stdout.write(
+        `\nAvailable codemods:\n` +
+          bundledCodemods
+            .map((c) => `  ${c.id} — ${c.description}`)
+            .join("\n") +
+          `\n\nRun: hebbs codemod <module> --codemod <id> [--write]\n\n`,
+      );
+      return 0;
+    }
+    const codemod = bundledCodemods.find((c) => c.id === codemodId);
+    if (!codemod) {
+      process.stderr.write(
+        `hebbs codemod: unknown codemod "${codemodId}". Use \`hebbs codemod <module>\` with no flags to list available.\n`,
+      );
+      return 2;
+    }
+    const write = args.flags.write === true;
+    const result = await runCodemod(codemod, { modulePath, write });
+    const verb = write ? "modified" : "would modify";
+    process.stdout.write(
+      `\n▶ hebbs codemod — ${codemod.id}\n` +
+        `  scanned: ${result.scannedFiles} file(s)\n` +
+        `  ${verb}: ${result.changedFiles.length} file(s)\n` +
+        result.changedFiles.map((f) => `    ${f}`).join("\n") +
+        (write ? "" : `\n  (dry-run — pass --write to apply)`) +
+        `\n`,
+    );
+    return 0;
   }
 
   if (args.command === "doctor") {

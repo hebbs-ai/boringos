@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://boringos.dev/connectors/microsoft/schemas/search_emails.input.json",
+  "title": "Outlook search_emails input",
+  "type": "object",
+  "required": ["query"],
+  "properties": {
+    "query": {
+      "type": "string",
+      "description": "Free-text search over the mailbox (e.g. \"from:boss invoice\")."
+    },
+    "maxResults": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 500,
+      "description": "Max results (default: 10)."
+    }
+  },
+  "additionalProperties": false
+}

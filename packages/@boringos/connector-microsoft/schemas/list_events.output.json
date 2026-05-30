@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://boringos.dev/connectors/microsoft/schemas/list_events.output.json",
+  "title": "Calendar list_events output",
+  "type": "object",
+  "required": ["events"],
+  "properties": {
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "summary", "startTime", "endTime"],
+        "properties": {
+          "id": { "type": "string" },
+          "summary": { "type": "string", "description": "Event subject." },
+          "description": { "type": "string" },
+          "startTime": { "type": "string", "description": "ISO 8601." },
+          "endTime": { "type": "string", "description": "ISO 8601." },
+          "attendees": {
+            "type": "array",
+            "items": { "type": "string", "description": "Attendee email." }
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://boringos.dev/connectors/microsoft/schemas/read_email.output.json",
+  "title": "Outlook read_email output",
+  "type": "object",
+  "required": ["id", "from", "subject", "body", "date"],
+  "properties": {
+    "id": { "type": "string" },
+    "conversationId": { "type": "string" },
+    "from": { "type": "string" },
+    "to": { "type": "string" },
+    "cc": { "type": "string" },
+    "subject": { "type": "string" },
+    "body": { "type": "string", "description": "Message body (text or HTML per contentType)." },
+    "date": { "type": "string" }
+  },
+  "additionalProperties": true
+}

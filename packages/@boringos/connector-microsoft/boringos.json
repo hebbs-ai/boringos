@@ -1,0 +1,94 @@
+{
+  "$schema": "https://boringos.dev/schemas/manifest.schema.json",
+  "kind": "connector",
+  "id": "microsoft",
+  "version": "0.1.0",
+  "name": "Microsoft 365",
+  "description": "Outlook Mail, Calendar, Contacts and OneDrive integration via Microsoft Graph.",
+  "publisher": {
+    "name": "BoringOS",
+    "homepage": "https://boringos.dev",
+    "verified": true
+  },
+  "minRuntime": "0.1.8",
+  "license": "AGPL-3.0-or-later",
+  "entry": "dist/index.js",
+  "auth": {
+    "type": "oauth2",
+    "provider": "microsoft",
+    "authorizationUrl": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+    "tokenUrl": "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+    "scopes": [
+      "openid",
+      "email",
+      "profile",
+      "offline_access",
+      "https://graph.microsoft.com/Mail.ReadWrite",
+      "https://graph.microsoft.com/Mail.Send",
+      "https://graph.microsoft.com/Calendars.ReadWrite",
+      "https://graph.microsoft.com/Contacts.Read",
+      "https://graph.microsoft.com/People.Read",
+      "https://graph.microsoft.com/Files.Read"
+    ]
+  },
+  "actions": [
+    {
+      "name": "list_emails",
+      "description": "List recent emails, optionally filtered by a search query.",
+      "inputSchema": "schemas/list_emails.input.json",
+      "outputSchema": "schemas/list_emails.output.json"
+    },
+    {
+      "name": "read_email",
+      "description": "Read the full content of an email by message ID.",
+      "inputSchema": "schemas/read_email.input.json",
+      "outputSchema": "schemas/read_email.output.json"
+    },
+    {
+      "name": "send_email",
+      "description": "Send an email.",
+      "inputSchema": "schemas/send_email.input.json"
+    },
+    {
+      "name": "search_emails",
+      "description": "Search emails with a query string.",
+      "inputSchema": "schemas/search_emails.input.json",
+      "outputSchema": "schemas/search_emails.output.json"
+    },
+    {
+      "name": "list_events",
+      "description": "List upcoming calendar events.",
+      "inputSchema": "schemas/list_events.input.json",
+      "outputSchema": "schemas/list_events.output.json"
+    },
+    {
+      "name": "create_event",
+      "description": "Create a calendar event.",
+      "inputSchema": "schemas/create_event.input.json",
+      "outputSchema": "schemas/create_event.output.json"
+    },
+    {
+      "name": "update_event",
+      "description": "Update an existing calendar event.",
+      "inputSchema": "schemas/update_event.input.json"
+    },
+    {
+      "name": "find_free_slots",
+      "description": "Find available time slots in the calendar.",
+      "inputSchema": "schemas/find_free_slots.input.json",
+      "outputSchema": "schemas/find_free_slots.output.json"
+    }
+  ],
+  "skills": [
+    "skills/mail.md",
+    "skills/calendar.md",
+    "skills/contacts.md",
+    "skills/files.md"
+  ],
+  "capabilities": [
+    "auth:oauth:microsoft",
+    "actions:expose:8",
+    "network:outbound:graph.microsoft.com",
+    "network:outbound:login.microsoftonline.com"
+  ]
+}

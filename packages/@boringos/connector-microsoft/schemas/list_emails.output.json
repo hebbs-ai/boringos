@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://boringos.dev/connectors/microsoft/schemas/list_emails.output.json",
+  "title": "Outlook list_emails output",
+  "type": "object",
+  "required": ["messages"],
+  "properties": {
+    "messages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "from", "subject", "snippet", "date"],
+        "properties": {
+          "id": { "type": "string", "description": "Graph message id." },
+          "conversationId": { "type": "string", "description": "Graph conversation id." },
+          "from": { "type": "string", "description": "Sender email address." },
+          "subject": { "type": "string" },
+          "snippet": { "type": "string", "description": "Preview of the message body (bodyPreview)." },
+          "date": { "type": "string", "description": "receivedDateTime (ISO 8601)." }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": false
+}

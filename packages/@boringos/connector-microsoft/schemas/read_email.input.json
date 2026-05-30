@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://boringos.dev/connectors/microsoft/schemas/read_email.input.json",
+  "title": "Outlook read_email input",
+  "type": "object",
+  "required": ["messageId"],
+  "properties": {
+    "messageId": {
+      "type": "string",
+      "description": "Graph message id."
+    }
+  },
+  "additionalProperties": false
+}

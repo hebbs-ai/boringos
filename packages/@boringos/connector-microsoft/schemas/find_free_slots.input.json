@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://boringos.dev/connectors/microsoft/schemas/find_free_slots.input.json",
+  "title": "Calendar find_free_slots input",
+  "type": "object",
+  "required": ["timeMin", "timeMax", "durationMinutes"],
+  "properties": {
+    "timeMin": { "type": "string", "description": "Search window start (ISO 8601)." },
+    "timeMax": { "type": "string", "description": "Search window end (ISO 8601)." },
+    "durationMinutes": {
+      "type": "number",
+      "minimum": 1,
+      "description": "Required slot duration in minutes."
+    }
+  },
+  "additionalProperties": false
+}

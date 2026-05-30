@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://boringos.dev/connectors/microsoft/schemas/create_event.input.json",
+  "title": "Calendar create_event input",
+  "type": "object",
+  "required": ["summary", "startTime", "endTime"],
+  "properties": {
+    "summary": { "type": "string", "description": "Event subject." },
+    "startTime": { "type": "string", "description": "Start time (ISO 8601)." },
+    "endTime": { "type": "string", "description": "End time (ISO 8601)." },
+    "description": { "type": "string" },
+    "location": { "type": "string", "description": "Display name of the location." },
+    "attendees": {
+      "type": "array",
+      "items": { "type": "string", "description": "Attendee email address." }
+    },
+    "timeZone": { "type": "string", "description": "IANA timezone (default: UTC)." }
+  },
+  "additionalProperties": false
+}

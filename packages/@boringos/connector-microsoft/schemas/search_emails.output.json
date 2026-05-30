@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://boringos.dev/connectors/microsoft/schemas/search_emails.output.json",
+  "title": "Outlook search_emails output",
+  "type": "object",
+  "required": ["messages"],
+  "properties": {
+    "messages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "from", "subject", "snippet", "date"],
+        "properties": {
+          "id": { "type": "string" },
+          "conversationId": { "type": "string" },
+          "from": { "type": "string" },
+          "subject": { "type": "string" },
+          "snippet": { "type": "string" },
+          "date": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": false
+}

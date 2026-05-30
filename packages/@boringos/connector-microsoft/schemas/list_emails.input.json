@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://boringos.dev/connectors/microsoft/schemas/list_emails.input.json",
+  "title": "Outlook list_emails input",
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string",
+      "description": "Free-text search over the mailbox (e.g. \"invoice from:boss\"). Optional."
+    },
+    "maxResults": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 500,
+      "description": "Max emails to return (default: 10)."
+    }
+  },
+  "additionalProperties": false
+}

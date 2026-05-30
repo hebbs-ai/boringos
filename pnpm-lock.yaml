@@ -118,6 +118,22 @@ importers:
         specifier: ^3.0.5
         version: 3.2.4(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)
 
+  packages/@boringos/connector-microsoft:
+    dependencies:
+      '@boringos/module-sdk':
+        specifier: workspace:*
+        version: link:../module-sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.17
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.5
+        version: 3.2.4(@types/node@22.19.17)(jiti@2.6.1)(lightningcss@1.32.0)(tsx@4.21.0)
+
   packages/@boringos/connector-slack:
     dependencies:
       '@boringos/module-sdk':

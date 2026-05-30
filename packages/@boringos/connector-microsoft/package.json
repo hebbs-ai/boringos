@@ -1,0 +1,49 @@
+{
+  "name": "@boringos/connector-microsoft",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "license": "AGPL-3.0-or-later",
+  "dependencies": {
+    "@boringos/module-sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  },
+  "description": "Microsoft 365 connector for Outlook Mail, Calendar, Contacts and OneDrive (Microsoft Graph).",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BoringOS-dev/boringos.git"
+  },
+  "homepage": "https://boringos.dev",
+  "author": "BoringOS Contributors",
+  "files": [
+    "dist",
+    "schemas",
+    "skills",
+    "boringos.json",
+    "README.md"
+  ],
+  "keywords": [
+    "boringos",
+    "agentic",
+    "ai-agents",
+    "framework",
+    "microsoft",
+    "microsoft-graph"
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://boringos.dev/connectors/microsoft/schemas/send_email.input.json",
+  "title": "Outlook send_email input",
+  "type": "object",
+  "required": ["to", "subject", "body"],
+  "properties": {
+    "to": {
+      "type": "string",
+      "description": "Recipient email address. Comma- or semicolon-separate for multiple."
+    },
+    "cc": {
+      "type": "string",
+      "description": "CC recipients. Comma- or semicolon-separated. Optional."
+    },
+    "subject": { "type": "string" },
+    "body": { "type": "string", "description": "Message body." },
+    "bodyType": {
+      "type": "string",
+      "enum": ["text", "html"],
+      "description": "Body content type (default: text)."
+    }
+  },
+  "additionalProperties": false
+}

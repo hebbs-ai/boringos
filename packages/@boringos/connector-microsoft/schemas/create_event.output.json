@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://boringos.dev/connectors/microsoft/schemas/create_event.output.json",
+  "title": "Calendar create_event output",
+  "type": "object",
+  "required": ["eventId", "summary", "startTime", "endTime"],
+  "properties": {
+    "eventId": { "type": "string" },
+    "summary": { "type": "string" },
+    "startTime": { "type": "string" },
+    "endTime": { "type": "string" },
+    "htmlLink": { "type": "string", "description": "Web URL to the event (webLink)." }
+  },
+  "additionalProperties": true
+}

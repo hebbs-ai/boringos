@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://boringos.dev/connectors/microsoft/schemas/list_events.input.json",
+  "title": "Calendar list_events input",
+  "type": "object",
+  "properties": {
+    "timeMin": { "type": "string", "description": "Start of the time window (ISO 8601)." },
+    "timeMax": { "type": "string", "description": "End of the time window (ISO 8601)." },
+    "maxResults": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 1000,
+      "description": "Max events to return (default: 10)."
+    }
+  },
+  "additionalProperties": false
+}
